@@ -53,6 +53,14 @@ const EDGE_COLOR = {
   conjugation: '#bb77ff',
 };
 
+/** Connection strength by relationship type (affects edge thickness). */
+const EDGE_STRENGTH = {
+  prerequisite: 3,    // Strong foundational connection
+  semantic: 2,        // Moderate semantic relationship
+  reactivation: 1.5,  // Weaker reactivation link
+  conjugation: 2.5,   // Strong grammatical relationship
+};
+
 /**
  * Mastery color scale: red (weak, 0) → yellow (moderate, 0.5) → green (strong, 1.0).
  * Called once; reused across renders.
@@ -77,6 +85,92 @@ function getGlowColor(mastery) {
   if (mastery > 0.7) return '#44ff44';  // Green
   if (mastery > 0.4) return '#ffaa00';  // Yellow
   return '#ff4444';                      // Red
+}
+
+/**
+ * Generate a curved path for an edge using quadratic bezier curve.
+ * The control point is offset perpendicular to the line connecting source and target.
+ *
+ * @param {Object} d - Link data with source and target coordinates
+ * @returns {string} SVG path string
+ */
+function getCurvedPath(d) {
+  const sourceX = d.source.x || 0;
+  const sourceY = d.source.y || 0;
+  const targetX = d.target.x || 0;
+  const targetY = d.target.y || 0;
+
+  // Calculate midpoint
+  const midX = (sourceX + targetX) / 2;
+  const midY = (sourceY + targetY) / 2;
+
+  // Calculate perpendicular offset for control point
+  const dx = targetX - sourceX;
+  const dy = targetY - sourceY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  // Offset amount (20% of distance, creates nice curve)
+  const offset = distance * 0.2;
+
+  // Perpendicular vector (normalized)
+  const perpX = -dy / distance;
+  const perpY = dx / distance;
+
+  // Control point offset perpendicular to the line
+  const controlX = midX + perpX * offset;
+  const controlY = midY + perpY * offset;
+
+  // Quadratic bezier curve: M (move to start), Q (quadratic curve to end with control point)
+  return `M ${sourceX},${sourceY} Q ${controlX},${controlY} ${targetX},${targetY}`;
+}
+
+/**
+ * Calculate a point along a quadratic bezier curve.
+ * Used for particle animation along curved edges.
+ *
+ * @param {number} t - Progress along curve (0 to 1)
+ * @param {number} sx - Source x
+ * @param {number} sy - Source y
+ * @param {number} cx - Control point x
+ * @param {number} cy - Control point y
+ * @param {number} tx - Target x
+ * @param {number} ty - Target y
+ * @returns {Object} Point {x, y} along the curve
+ */
+function getPointOnQuadraticCurve(t, sx, sy, cx, cy, tx, ty) {
+  const t1 = 1 - t;
+  const x = t1 * t1 * sx + 2 * t1 * t * cx + t * t * tx;
+  const y = t1 * t1 * sy + 2 * t1 * t * cy + t * t * ty;
+  return { x, y };
+}
+
+/**
+ * Calculate control point for a quadratic bezier curve.
+ * Returns the same control point used in getCurvedPath.
+ *
+ * @param {number} sx - Source x
+ * @param {number} sy - Source y
+ * @param {number} tx - Target x
+ * @param {number} ty - Target y
+ * @returns {Object} Control point {x, y}
+ */
+function getControlPoint(sx, sy, tx, ty) {
+  const midX = (sx + tx) / 2;
+  const midY = (sy + ty) / 2;
+
+  const dx = tx - sx;
+  const dy = ty - sy;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  const offset = distance * 0.2;
+
+  const perpX = -dy / distance;
+  const perpY = dx / distance;
+
+  return {
+    x: midX + perpX * offset,
+    y: midY + perpY * offset,
+  };
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -129,16 +223,22 @@ export default function KnowledgeGraph({ nodes, links }) {
     }
 
     getPosition() {
-      // Linear interpolation between source and target
+      // Follow curved path using quadratic bezier curve
       const sourceX = this.link.source.x || 0;
       const sourceY = this.link.source.y || 0;
       const targetX = this.link.target.x || 0;
       const targetY = this.link.target.y || 0;
 
-      return {
-        x: sourceX + (targetX - sourceX) * this.progress,
-        y: sourceY + (targetY - sourceY) * this.progress,
-      };
+      // Get control point for the curve
+      const control = getControlPoint(sourceX, sourceY, targetX, targetY);
+
+      // Calculate position along quadratic bezier curve
+      return getPointOnQuadraticCurve(
+        this.progress,
+        sourceX, sourceY,
+        control.x, control.y,
+        targetX, targetY
+      );
     }
 
     draw(ctx, transform) {
@@ -286,18 +386,20 @@ export default function KnowledgeGraph({ nodes, links }) {
     feMerge.append('feMergeNode').attr('in', 'blur');
     feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
 
-    // Arrow marker for directed edges
-    defs.append('marker')
-      .attr('id', 'arrowhead')
-      .attr('viewBox', '0 0 10 10')
-      .attr('refX', 20)
-      .attr('refY', 5)
-      .attr('markerWidth', 6)
-      .attr('markerHeight', 6)
-      .attr('orient', 'auto')
-      .append('path')
-      .attr('d', 'M 0 0 L 10 5 L 0 10 z')
-      .attr('fill', '#555');
+    // Arrow markers for directed edges (one per relationship type with matching color)
+    Object.entries(EDGE_COLOR).forEach(([relationship, color]) => {
+      defs.append('marker')
+        .attr('id', `arrowhead-${relationship}`)
+        .attr('viewBox', '0 0 10 10')
+        .attr('refX', 20)
+        .attr('refY', 5)
+        .attr('markerWidth', 6)
+        .attr('markerHeight', 6)
+        .attr('orient', 'auto')
+        .append('path')
+        .attr('d', 'M 0 0 L 10 5 L 0 10 z')
+        .attr('fill', color);
+    });
 
     // ── Tooltip element ──────────────────────────────────────────────
     // Remove any stale tooltips
@@ -368,14 +470,15 @@ export default function KnowledgeGraph({ nodes, links }) {
     // ── Render edges ─────────────────────────────────────────────────
     const linkGroup = g.append('g').attr('class', 'knowledge-graph__links');
 
-    const link = linkGroup.selectAll('line')
+    const link = linkGroup.selectAll('path')
       .data(simLinks)
-      .join('line')
+      .join('path')
       .attr('stroke', (d) => EDGE_COLOR[d.relationship] || '#555')
-      .attr('stroke-width', 1.5)
+      .attr('stroke-width', (d) => EDGE_STRENGTH[d.relationship] || 1.5)
       .attr('stroke-opacity', 0.6)
       .attr('stroke-dasharray', (d) => EDGE_DASH[d.relationship] || null)
-      .attr('marker-end', 'url(#arrowhead)');
+      .attr('fill', 'none')
+      .attr('marker-end', (d) => `url(#arrowhead-${d.relationship})`);
 
     // Edge relationship labels (positioned at midpoint)
     const linkLabel = linkGroup.selectAll('text')
@@ -528,9 +631,11 @@ export default function KnowledgeGraph({ nodes, links }) {
           .attr('stroke-opacity', (l) =>
             (l.source.id === d.id || l.target.id === d.id) ? 1 : 0.15
           )
-          .attr('stroke-width', (l) =>
-            (l.source.id === d.id || l.target.id === d.id) ? 2.5 : 1.5
-          );
+          .attr('stroke-width', (l) => {
+            const isConnected = (l.source.id === d.id || l.target.id === d.id);
+            const baseWidth = EDGE_STRENGTH[l.relationship] || 1.5;
+            return isConnected ? baseWidth * 1.5 : baseWidth;
+          });
       })
       .on('mousemove', (event) => {
         const rect = container.getBoundingClientRect();
@@ -552,7 +657,7 @@ export default function KnowledgeGraph({ nodes, links }) {
         // Reset edge highlight
         link
           .attr('stroke-opacity', 0.6)
-          .attr('stroke-width', 1.5);
+          .attr('stroke-width', (l) => EDGE_STRENGTH[l.relationship] || 1.5);
       });
 
     // Drag behavior
@@ -589,15 +694,31 @@ export default function KnowledgeGraph({ nodes, links }) {
         d.y = Math.max(r, Math.min(height - r, d.y));
       });
 
-      link
-        .attr('x1', (d) => d.source.x)
-        .attr('y1', (d) => d.source.y)
-        .attr('x2', (d) => d.target.x)
-        .attr('y2', (d) => d.target.y);
+      // Update curved path edges
+      link.attr('d', getCurvedPath);
 
+      // Position labels at the midpoint of the curve
       linkLabel
-        .attr('x', (d) => (d.source.x + d.target.x) / 2)
-        .attr('y', (d) => (d.source.y + d.target.y) / 2);
+        .attr('x', (d) => {
+          const sx = d.source.x || 0;
+          const tx = d.target.x || 0;
+          const sy = d.source.y || 0;
+          const ty = d.target.y || 0;
+          const control = getControlPoint(sx, sy, tx, ty);
+          // Position at t=0.5 on the curve
+          const point = getPointOnQuadraticCurve(0.5, sx, sy, control.x, control.y, tx, ty);
+          return point.x;
+        })
+        .attr('y', (d) => {
+          const sx = d.source.x || 0;
+          const tx = d.target.x || 0;
+          const sy = d.source.y || 0;
+          const ty = d.target.y || 0;
+          const control = getControlPoint(sx, sy, tx, ty);
+          // Position at t=0.5 on the curve
+          const point = getPointOnQuadraticCurve(0.5, sx, sy, control.x, control.y, tx, ty);
+          return point.y;
+        });
 
       node.attr('transform', (d) => `translate(${d.x},${d.y})`);
     });
