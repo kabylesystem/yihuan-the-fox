@@ -1566,8 +1566,13 @@
   gap: 6px;
 }
 
-.learner-progress__section-icon {
-  font-size: 14px;
+/* SVG icon styling for section titles */
+.learner-progress__section-icon-svg {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 6px;
+  color: var(--accent-primary);
+  filter: var(--filter-drop-shadow-blue);
 }
 
 .learner-progress__border-text {
@@ -1672,7 +1677,13 @@
 }
 
 .learner-progress__empty-icon {
-  font-size: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.learner-progress__empty-icon-svg {
+  color: var(--accent-primary);
   opacity: 0.5;
 }
 
