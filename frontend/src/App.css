@@ -1116,7 +1116,7 @@
   height: 8px;
   border-radius: 50%;
   background: var(--accent-purple);
-  animation: typing-bounce 1.4s ease-in-out infinite;
+  animation: typing-bounce 0.8s ease-in-out infinite;
 }
 
 .conversation-panel__typing-dot:nth-child(1) { animation-delay: 0s; }
