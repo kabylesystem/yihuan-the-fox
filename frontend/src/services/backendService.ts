@@ -5,7 +5,7 @@
  *  - WebSocket at /ws/conversation for real-time conversation turns
  *  - REST endpoints for graph data and session management
  *
- * When no backend is available (e.g. Vercel deployment), falls back gracefully.
+ * Handles status messages from the backend during processing.
  */
 
 import { Neuron, Synapse, Message, Category } from '../types';
@@ -21,7 +21,6 @@ function getWsUrl(): string {
   if (base) {
     return base.replace(/^http/, 'ws') + '/ws/conversation';
   }
-  // Use Vite dev proxy (relative URL)
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${window.location.host}/ws/conversation`;
 }
@@ -119,9 +118,10 @@ let ws: WebSocket | null = null;
 let reconnectAttempts = 0;
 let connectionStatus: ConnectionStatus = 'disconnected';
 let statusCallback: ((s: ConnectionStatus) => void) | null = null;
+let statusStepCallback: ((step: string) => void) | null = null;
 let pendingRequest: PendingResolve | null = null;
 
-const MAX_RECONNECTS = 3;
+const MAX_RECONNECTS = 5;
 
 function setStatus(s: ConnectionStatus) {
   connectionStatus = s;
@@ -130,6 +130,11 @@ function setStatus(s: ConnectionStatus) {
 
 export function onConnectionStatusChange(cb: (s: ConnectionStatus) => void) {
   statusCallback = cb;
+}
+
+/** Register a callback for backend processing status updates (transcribing/thinking/speaking). */
+export function onStatusStep(cb: (step: string) => void) {
+  statusStepCallback = cb;
 }
 
 export function getConnectionStatus(): ConnectionStatus {
@@ -143,7 +148,6 @@ export function connect(): Promise<boolean> {
       return;
     }
     if (ws && ws.readyState === WebSocket.CONNECTING) {
-      // Wait for existing connection attempt
       const check = setInterval(() => {
         if (!ws || ws.readyState === WebSocket.OPEN) {
           clearInterval(check);
@@ -185,6 +189,14 @@ export function connect(): Promise<boolean> {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+
+        // Status messages are progress updates — don't resolve the pending request
+        if (data.type === 'status') {
+          statusStepCallback?.(data.step || '');
+          return;
+        }
+
+        // All other messages resolve the pending request
         if (pendingRequest) {
           const { resolve: res } = pendingRequest;
           pendingRequest = null;
@@ -208,9 +220,9 @@ export function connect(): Promise<boolean> {
       if (reconnectAttempts < MAX_RECONNECTS && connectionStatus !== 'failed') {
         reconnectAttempts++;
         setStatus('reconnecting');
-        setTimeout(() => connect(), 2000 * reconnectAttempts);
+        setTimeout(() => connect(), 1000 * reconnectAttempts);
       } else {
-        setStatus('failed');
+        setStatus('disconnected');
       }
     };
 
@@ -221,7 +233,7 @@ export function connect(): Promise<boolean> {
 }
 
 export function disconnect() {
-  reconnectAttempts = MAX_RECONNECTS; // prevent auto-reconnect
+  reconnectAttempts = MAX_RECONNECTS;
   if (ws) {
     ws.close();
     ws = null;
@@ -231,12 +243,17 @@ export function disconnect() {
 
 /**
  * Send a message through the WebSocket and wait for a response.
- *
- * @param content The message content (text or base64 audio).
- * @param type    "text" or "audio".
- * @returns       The backend response payload.
+ * Auto-reconnects if the WebSocket is not open.
  */
-export function sendMessage(content: string, type: 'text' | 'audio' = 'text'): Promise<any> {
+export async function sendMessage(content: string, type: 'text' | 'audio' = 'text'): Promise<any> {
+  // Auto-reconnect if needed
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    const reconnected = await connect();
+    if (!reconnected) {
+      throw new Error('Cannot connect to backend');
+    }
+  }
+
   return new Promise((resolve, reject) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       reject(new Error('Not connected'));
@@ -245,13 +262,13 @@ export function sendMessage(content: string, type: 'text' | 'audio' = 'text'): P
     pendingRequest = { resolve, reject };
     ws.send(JSON.stringify({ type, content }));
 
-    // Timeout after 30s
+    // Timeout after 20s
     setTimeout(() => {
       if (pendingRequest) {
-        pendingRequest.reject(new Error('Request timeout'));
+        pendingRequest.reject(new Error('Request timeout — backend took too long'));
         pendingRequest = null;
       }
-    }, 30000);
+    }, 20000);
   });
 }
 
@@ -300,9 +317,6 @@ export async function resetSession(): Promise<boolean> {
   }
 }
 
-/**
- * Check if the backend is reachable.
- */
 export async function isBackendAvailable(): Promise<boolean> {
   const base = getBaseUrl();
   try {

@@ -504,7 +504,11 @@ export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick,
   useEffect(() => {
     // Clone to avoid mutating props
     const nodes = neurons.map(n => ({ ...n }));
-    const links = synapses.map(s => ({ ...s }));
+    const nodeIds = new Set(nodes.map(n => n.id));
+    // Filter out links that reference missing nodes — prevents D3 crash
+    const links = synapses
+      .filter(s => nodeIds.has(s.source) && nodeIds.has(s.target))
+      .map(s => ({ ...s }));
 
     // If there's a focus node, use different positioning strategy
     if (focusNodeId) {
@@ -610,7 +614,7 @@ export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick,
               />
             );
           })}
-          {synapses.map((s, i) => {
+          {synapses.filter(s => positionedNodes.some(n => n.id === s.source) && positionedNodes.some(n => n.id === s.target)).map((s, i) => {
             const source = positionedNodes.find(n => n.id === s.source);
             const isDimmed = filterCategory !== 'all' && source?.category !== filterCategory;
             return (

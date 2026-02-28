@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { NebulaCanvas } from './components/NebulaCanvas';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Neuron, Synapse, NebulaState, Category, Message } from './types';
 import { analyzeInput, checkBackend, isUsingBackend, resetMockState, getMockTurnIndex, getTotalMockTurns } from './services/geminiService';
-import { onConnectionStatusChange, ConnectionStatus, resetSession } from './services/backendService';
+import { onConnectionStatusChange, onStatusStep, ConnectionStatus, resetSession } from './services/backendService';
 import { Send, Brain, Zap, Info, Loader2, Search, Filter, Mic, Clock, X, MessageSquare, User, Bot, ChevronDown, ChevronUp, Plane, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -46,12 +47,13 @@ function blobToBase64(blob: Blob): Promise<string> {
 export default function App() {
   const [state, setState] = useState<NebulaState>(INITIAL_STATE);
   const [isLoading, setIsLoading] = useState(false);
+  const [processingStep, setProcessingStep] = useState('');
   const [selectedNeuron, setSelectedNeuron] = useState<Neuron | null>(null);
   const [filterCategory, setFilterCategory] = useState<Category | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [timePulse, setTimePulse] = useState(0);
   const [isListening, setIsListening] = useState(false);
-  const [showChat, setShowChat] = useState(false);
+  const [showChat, setShowChat] = useState(true);
   const [isFlying, setIsFlying] = useState(false);
   const [showFilter, setShowFilter] = useState(true);
   const [showPulse, setShowPulse] = useState(true);
@@ -70,6 +72,7 @@ export default function App() {
   // ── Initialize: check backend availability ───────────────────────────
   useEffect(() => {
     onConnectionStatusChange(setConnectionStatus);
+    onStatusStep(setProcessingStep);
 
     checkBackend().then((backendAvailable) => {
       if (!backendAvailable) {
@@ -151,6 +154,7 @@ export default function App() {
       console.error("Failed to analyze input:", error);
     } finally {
       setIsLoading(false);
+      setProcessingStep('');
     }
   };
 
@@ -272,18 +276,20 @@ export default function App() {
       {/* Main View Area */}
       <div className={`relative h-full transition-all duration-500 ease-in-out ${showChat ? 'w-2/3' : 'w-full'}`}>
         {/* 3D Nebula Background */}
-        <NebulaCanvas
-          neurons={state.neurons}
-          synapses={state.synapses}
-          onNeuronClick={handleNeuronClick}
-          onSynapseClick={handleSynapseClick}
-          filterCategory={filterCategory}
-          searchTarget={searchTarget}
-          timePulse={timePulse}
-          shootingStars={shootingStars}
-          onShootingStarComplete={handleShootingStarComplete}
-          isFlying={isFlying}
-        />
+        <ErrorBoundary>
+          <NebulaCanvas
+            neurons={state.neurons}
+            synapses={state.synapses}
+            onNeuronClick={handleNeuronClick}
+            onSynapseClick={handleSynapseClick}
+            filterCategory={filterCategory}
+            searchTarget={searchTarget}
+            timePulse={timePulse}
+            shootingStars={shootingStars}
+            onShootingStarComplete={handleShootingStarComplete}
+            isFlying={isFlying}
+          />
+        </ErrorBoundary>
 
         {/* UI Overlay */}
         <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-6">
@@ -501,7 +507,7 @@ export default function App() {
                     <p className="text-xs font-medium text-white/60 uppercase tracking-[0.3em]">
                       {demoComplete ? 'Demo Complete — Reset to restart' :
                        isListening ? 'Listening... click again to stop' :
-                       isLoading ? 'Analyzing Neural Path...' :
+                       isLoading ? (processingStep === 'transcribing' ? 'Transcribing speech...' : processingStep === 'thinking' ? 'AI is thinking...' : processingStep === 'speaking' ? 'Generating audio...' : 'Processing...') :
                        isDemoMode ? 'Tap to advance demo' : 'Tap to Speak'}
                     </p>
                     <p className="text-[10px] text-white/30 mt-1">

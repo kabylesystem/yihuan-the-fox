@@ -30,6 +30,8 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:4321",
+        "http://127.0.0.1:4321",
         "https://frontend-puce-kappa-7o1rgv08q5.vercel.app",
     ],
     allow_credentials=True,

@@ -34,17 +34,18 @@ async def graph_nodes() -> list[dict]:
             if node["turn_introduced"] <= current_turn
         ]
 
-    # Real mode: build nodes from mastery scores + conversation history
+    # Real mode: build nodes from mastery scores + vocabulary breakdown
     nodes = []
+    seen_ids = set()
+
+    # Nodes from mastery scores
     for word, score in state.mastery_scores.items():
         node_id = word.replace(" ", "_").replace("'", "")
-        # Determine node type based on content
-        if " " in word:
-            node_type = "sentence"
-        else:
-            node_type = "vocab"
+        if node_id in seen_ids:
+            continue
+        seen_ids.add(node_id)
 
-        # Find which turn this word first appeared
+        node_type = "sentence" if " " in word else "vocab"
         turn_intro = 1
         for t in state.conversation_history:
             if word in (t.response.new_elements or []):
@@ -61,6 +62,25 @@ async def graph_nodes() -> list[dict]:
                 turn_introduced=turn_intro,
             ).model_dump()
         )
+
+    # Also add nodes from vocabulary breakdowns (these have translations)
+    for t in state.conversation_history:
+        for v in t.response.vocabulary_breakdown or []:
+            word = v.word
+            node_id = word.replace(" ", "_").replace("'", "")
+            if node_id in seen_ids:
+                continue
+            seen_ids.add(node_id)
+            nodes.append(
+                GraphNode(
+                    id=node_id,
+                    label=word,
+                    type="vocab",
+                    mastery=state.mastery_scores.get(word, 0.3),
+                    level=state.level,
+                    turn_introduced=t.turn_number,
+                ).model_dump()
+            )
 
     return nodes
 
@@ -83,6 +103,11 @@ async def graph_links() -> list[dict]:
         ]
 
     # Real mode: build links from conversation turns
+    # Only create links where both endpoints exist as nodes (in mastery_scores)
+    node_ids = {
+        word.replace(" ", "_").replace("'", "")
+        for word in state.mastery_scores
+    }
     links = []
     seen = set()
     for turn in state.conversation_history:
@@ -95,6 +120,8 @@ async def graph_links() -> list[dict]:
             for tgt in new_els[i + 1 :]:
                 src_id = src.replace(" ", "_").replace("'", "")
                 tgt_id = tgt.replace(" ", "_").replace("'", "")
+                if src_id not in node_ids or tgt_id not in node_ids:
+                    continue
                 key = (src_id, tgt_id)
                 if key not in seen:
                     seen.add(key)
@@ -112,6 +139,8 @@ async def graph_links() -> list[dict]:
             for new_el in new_els[:1]:  # Link to first new element
                 src_id = react.replace(" ", "_").replace("'", "")
                 tgt_id = new_el.replace(" ", "_").replace("'", "")
+                if src_id not in node_ids or tgt_id not in node_ids:
+                    continue
                 key = (src_id, tgt_id)
                 if key not in seen:
                     seen.add(key)

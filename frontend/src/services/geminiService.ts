@@ -10,6 +10,40 @@
 import { NebulaState, Category } from '../types';
 import * as backend from './backendService';
 
+// ── TTS Audio Playback ──────────────────────────────────────────────────
+
+function playTTS(tts: { mode: string; audio_base64?: string; text?: string; content_type?: string }) {
+  if (tts.mode === 'audio' && tts.audio_base64) {
+    try {
+      const audioData = atob(tts.audio_base64);
+      const bytes = new Uint8Array(audioData.length);
+      for (let i = 0; i < audioData.length; i++) bytes[i] = audioData.charCodeAt(i);
+      const blob = new Blob([bytes], { type: tts.content_type || 'audio/mp3' });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      audio.play().catch((err) => {
+        console.warn('Audio playback failed, falling back to browser TTS:', err);
+        if (tts.text) speakWithBrowser(tts.text);
+      });
+    } catch (err) {
+      console.warn('Audio decode failed:', err);
+      if (tts.text) speakWithBrowser(tts.text);
+    }
+  } else if (tts.mode === 'browser' && tts.text) {
+    speakWithBrowser(tts.text);
+  }
+}
+
+function speakWithBrowser(text: string) {
+  if ('speechSynthesis' in window) {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'fr-FR';
+    utterance.rate = 1.1;
+    window.speechSynthesis.speak(utterance);
+  }
+}
+
 // ── Mock data (French learning, matches backend mock_data.py) ────────────
 
 const MOCK_TURNS = [
@@ -207,6 +241,11 @@ export async function analyzeInput(
         const updatedMessages = backend.mapTurnToMessages(response.turn, currentState.messages);
         const { neurons, synapses } = await backend.fetchGraphData();
 
+        // Play TTS audio if available
+        if (response.tts) {
+          playTTS(response.tts);
+        }
+
         return {
           neurons: neurons.length > 0 ? neurons : currentState.neurons,
           synapses: synapses.length > 0 ? synapses : currentState.synapses,
@@ -220,24 +259,61 @@ export async function analyzeInput(
             {
               id: `system-${Date.now()}`,
               role: 'ai' as const,
-              text: 'Demo complete! All 5 turns have been played. Reset to try again.',
+              text: 'Demo complete! Reset to try again.',
               timestamp: Date.now(),
             },
           ],
         };
       } else if (response.type === 'error') {
-        throw new Error(response.message);
+        // Show the error to the user instead of silently falling back
+        return {
+          ...currentState,
+          messages: [
+            ...currentState.messages,
+            {
+              id: `user-${Date.now()}`,
+              role: 'user' as const,
+              text: input,
+              timestamp: Date.now(),
+            },
+            {
+              id: `error-${Date.now()}`,
+              role: 'ai' as const,
+              text: `Error: ${response.message}. Please try again.`,
+              timestamp: Date.now() + 1,
+            },
+          ],
+        };
       }
     } catch (err) {
-      console.warn('Backend request failed, falling back to mock:', err);
+      console.error('Backend request failed:', err);
+      // Show error instead of silently falling back to mock
+      return {
+        ...currentState,
+        messages: [
+          ...currentState.messages,
+          {
+            id: `user-${Date.now()}`,
+            role: 'user' as const,
+            text: input,
+            timestamp: Date.now(),
+          },
+          {
+            id: `error-${Date.now()}`,
+            role: 'ai' as const,
+            text: `Connection error: ${err instanceof Error ? err.message : 'Unknown error'}. Retrying...`,
+            timestamp: Date.now() + 1,
+          },
+        ],
+      };
     }
   }
 
-  // ── Mock mode ──────────────────────────────────────────────────────
-  return processMockTurn(currentState);
+  // ── Mock mode (only when no backend) ──────────────────────────────
+  return processMockTurn(currentState, input);
 }
 
-function processMockTurn(currentState: NebulaState): NebulaState {
+function processMockTurn(currentState: NebulaState, userInput?: string): NebulaState {
   if (mockTurnIndex >= MOCK_TURNS.length) {
     return {
       ...currentState,
@@ -286,7 +362,7 @@ function processMockTurn(currentState: NebulaState): NebulaState {
   const userMsg = {
     id: `user-${ts}`,
     role: 'user' as const,
-    text: turn.user_said,
+    text: userInput || turn.user_said,
     timestamp: ts,
   };
 

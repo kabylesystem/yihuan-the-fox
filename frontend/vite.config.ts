@@ -14,14 +14,14 @@ export default defineConfig({
     'process.env.VITE_BACKEND_URL': JSON.stringify(process.env.VITE_BACKEND_URL || ''),
   },
   server: {
-    port: 3000,
+    port: 4321,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:4322',
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://localhost:8000',
+        target: 'ws://localhost:4322',
         ws: true,
       },
     },

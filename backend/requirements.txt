@@ -5,6 +5,7 @@ httpx
 backboard-sdk
 openai
 speechmatics-python
+av
 python-dotenv
 pydantic
 pytest

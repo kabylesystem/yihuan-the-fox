@@ -6,8 +6,12 @@ Real mode: Connects to Backboard SDK for persistent memory, with custom
            backend logic for mastery score tracking and CEFR assessment.
 """
 
+import logging
 import os
+
 from backend.config import MOCK_MODE
+
+logger = logging.getLogger(__name__)
 
 
 class BackboardService:
@@ -33,9 +37,8 @@ class BackboardService:
         from backboard import BackboardClient
 
         api_key = os.getenv("BACKBOARD_API_KEY", "")
-        self._client = BackboardClient(api_key=api_key)
+        self._client = BackboardClient(api_key=api_key, timeout=15)
         self._assistant_id = None
-        self._thread_id = None
 
     async def update_mastery(self, scores: dict[str, float]) -> None:
         """Update mastery scores for vocabulary/structures.
@@ -61,27 +64,28 @@ class BackboardService:
             self._mastery_scores[key] = max(0.0, min(1.0, float(value)))
 
     async def _real_update_mastery(self, scores: dict[str, float]) -> None:
-        """Persist mastery scores via Backboard SDK.
+        """Persist mastery scores via Backboard SDK add_memory.
 
-        Sends a structured message to Backboard with mastery data,
-        using memory='Auto' for automatic fact extraction.
+        Uses add_memory (direct storage) instead of add_message (which
+        invokes an LLM and can timeout). This is faster and more reliable.
 
         Args:
             scores: Dictionary of mastery scores to persist.
         """
-        if not self._thread_id:
-            await self._ensure_thread()
+        if not self._assistant_id:
+            await self._ensure_assistant()
 
         score_text = ", ".join(
             f"{word}: {score:.2f}" for word, score in scores.items()
         )
-        await self._client.add_message(
-            thread_id=self._thread_id,
-            content=f"Mastery scores updated: {score_text}",
-            memory="Auto",
-            stream=False,
-        )
-        # Also update local cache for immediate reads
+        try:
+            await self._client.add_memory(
+                assistant_id=self._assistant_id,
+                content=f"Mastery scores: {score_text}",
+                metadata={"type": "mastery", "scores": scores},
+            )
+        except Exception as exc:
+            logger.warning("Backboard mastery update failed (non-critical): %s", exc)
         for key, value in scores.items():
             self._mastery_scores[key] = max(0.0, min(1.0, float(value)))
 
@@ -146,26 +150,28 @@ class BackboardService:
     async def _real_update_profile(
         self, level: str, turn: int, border_update: str
     ) -> None:
-        """Persist learner profile updates via Backboard SDK.
+        """Persist learner profile updates via Backboard SDK add_memory.
 
         Args:
             level: Current CEFR level.
             turn: Current turn number.
             border_update: Latest border update text.
         """
-        if not self._thread_id:
-            await self._ensure_thread()
+        if not self._assistant_id:
+            await self._ensure_assistant()
 
-        await self._client.add_message(
-            thread_id=self._thread_id,
-            content=(
-                f"Learner profile: CEFR level {level}, "
-                f"completed {turn} turns. "
-                f"Current ability: {border_update}"
-            ),
-            memory="Auto",
-            stream=False,
-        )
+        try:
+            await self._client.add_memory(
+                assistant_id=self._assistant_id,
+                content=(
+                    f"Learner profile: CEFR level {level}, "
+                    f"completed {turn} turns. "
+                    f"Current ability: {border_update}"
+                ),
+                metadata={"type": "profile", "level": level, "turn": turn},
+            )
+        except Exception as exc:
+            logger.warning("Backboard profile update failed (non-critical): %s", exc)
         self._learner_profile["level"] = level
         self._learner_profile["total_turns"] = turn
         self._learner_profile["border_update"] = border_update
@@ -207,18 +213,16 @@ class BackboardService:
             "total_turns": 0,
             "border_update": "",
         }
-        if not self.mock_mode and self._thread_id:
-            # Create a fresh thread for the new session
-            self._thread_id = None
+        # Assistant persists across sessions for memory continuity
 
-    async def _ensure_thread(self) -> None:
-        """Ensure a Backboard assistant and thread exist for this session.
+    async def _ensure_assistant(self) -> None:
+        """Ensure a Backboard assistant exists for memory storage.
 
-        Creates them lazily on first real-mode API call.
+        Creates it lazily on first real-mode API call.
         """
         if not self._assistant_id:
             assistant = await self._client.create_assistant(
-                name="Neural-Sync Tutor",
+                name="Echo Language Tutor",
                 system_prompt=(
                     "You are tracking a French language learner's progress. "
                     "Remember their mastery scores, CEFR level, and linguistic "
@@ -226,8 +230,3 @@ class BackboardService:
                 ),
             )
             self._assistant_id = assistant.assistant_id
-
-        thread = await self._client.create_thread(
-            assistant_id=self._assistant_id,
-        )
-        self._thread_id = thread.thread_id

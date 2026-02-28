@@ -1,13 +1,18 @@
 """
 OpenAI Text-to-Speech (TTS) Service.
 
-Mock mode: Returns text and a 'browser' mode flag so the frontend can use
-the browser's built-in SpeechSynthesis API for French TTS playback.
-Real mode: Calls OpenAI TTS API (gpt-4o-mini-tts) to generate audio bytes.
+Mock mode: Returns text for browser SpeechSynthesis API.
+Real mode: Calls OpenAI TTS API (gpt-4o-mini-tts) with 10s timeout.
+           Falls back to browser TTS on failure.
 """
 
+import asyncio
+import logging
 import os
+
 from backend.config import MOCK_MODE
+
+logger = logging.getLogger(__name__)
 
 
 class TTSService:
@@ -32,67 +37,47 @@ class TTSService:
         self._voice = "coral"
 
     async def synthesize(self, text: str) -> dict:
-        """Synthesize speech from text.
-
-        Args:
-            text: French text to synthesize into speech.
-
-        Returns:
-            Dictionary with synthesis result:
-            - Mock mode: {"mode": "browser", "text": "<text>"}
-              (frontend uses browser SpeechSynthesis)
-            - Real mode: {"mode": "audio", "audio_base64": "<base64>",
-              "content_type": "audio/mp3"}
-        """
+        """Synthesize speech from text. Falls back to browser TTS on failure."""
         if self.mock_mode:
             return self._mock_synthesize(text)
         return await self._real_synthesize(text)
 
     def _mock_synthesize(self, text: str) -> dict:
-        """Return text for browser SpeechSynthesis playback.
-
-        In mock mode, TTS is handled entirely by the frontend using
-        the browser's built-in SpeechSynthesis API with a French voice.
-
-        Args:
-            text: French text to speak.
-
-        Returns:
-            Dictionary with mode='browser' and the text to speak.
-        """
-        return {
-            "mode": "browser",
-            "text": text,
-        }
+        """Return text for browser SpeechSynthesis playback."""
+        return {"mode": "browser", "text": text}
 
     async def _real_synthesize(self, text: str) -> dict:
-        """Synthesize speech using OpenAI TTS API.
+        """Synthesize speech using OpenAI TTS API with 10s timeout.
 
-        Uses the gpt-4o-mini-tts model with instructions for natural
-        French pronunciation and conversational tone.
-
-        Args:
-            text: French text to synthesize.
-
-        Returns:
-            Dictionary with mode='audio', base64-encoded audio data,
-            and the content type.
+        Falls back to browser TTS if the API call fails or times out.
         """
         import base64
 
-        response = await self._client.audio.speech.create(
-            model=self._model,
-            voice=self._voice,
-            input=text,
-            instructions="Speak in natural, clear French with a warm, encouraging tone.",
-            response_format="mp3",
-        )
+        try:
+            response = await asyncio.wait_for(
+                self._client.audio.speech.create(
+                    model=self._model,
+                    voice=self._voice,
+                    input=text,
+                    instructions="Speak in natural, clear French with a warm, encouraging tone.",
+                    response_format="mp3",
+                    speed=1.15,
+                ),
+                timeout=10,
+            )
 
-        audio_bytes = response.content
-        audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+            audio_bytes = response.content
+            audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
 
-        return {
-            "mode": "audio",
-            "audio_base64": audio_base64,
-            "content_type": "audio/mp3",
-        }
+            return {
+                "mode": "audio",
+                "audio_base64": audio_base64,
+                "content_type": "audio/mp3",
+            }
+
+        except asyncio.TimeoutError:
+            logger.error("TTS timed out (10s), falling back to browser TTS")
+            return {"mode": "browser", "text": text}
+        except Exception as exc:
+            logger.error("TTS failed: %s, falling back to browser TTS", exc)
+            return {"mode": "browser", "text": text}

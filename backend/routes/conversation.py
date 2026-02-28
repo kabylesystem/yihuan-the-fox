@@ -1,20 +1,22 @@
 """
-Conversation WebSocket endpoint for Neural-Sync Language Lab.
+Conversation WebSocket endpoint for Echo Neural Language Lab.
 
 Handles real-time voice conversation flow over WebSocket at /ws/conversation.
-Orchestrates the STT -> OpenAI -> Backboard -> TTS pipeline for each turn
-and returns a TutorResponse JSON payload per turn.
+Orchestrates the STT -> OpenAI -> Backboard -> TTS pipeline for each turn.
+Sends progress status messages during processing so the frontend can show updates.
 
 Frontend sends:
-    {"type": "text", "content": "Bonjour"}       — text input (mock/text mode)
-    {"type": "audio", "content": "<base64>"}      — audio input (real STT mode)
+    {"type": "text", "content": "Bonjour"}       — text input
+    {"type": "audio", "content": "<base64>"}      — audio input (webm/opus)
 
 Backend responds:
+    {"type": "status", "step": "..."}             — progress update
     {"type": "turn_response", "turn": {...}}       — full conversation turn
     {"type": "demo_complete", "message": "..."}    — all mock turns exhausted
     {"type": "error", "message": "..."}            — error during processing
 """
 
+import asyncio
 import json
 import logging
 
@@ -42,13 +44,7 @@ _tts_service = TTSService()
 
 @router.websocket("/ws/conversation")
 async def conversation_ws(websocket: WebSocket) -> None:
-    """WebSocket endpoint for real-time conversation with the AI tutor.
-
-    Each message from the client triggers one conversation turn through
-    the full pipeline: STT (if audio) -> OpenAI -> Backboard -> TTS.
-    The session state is updated after each turn and the full
-    ConversationTurn is sent back to the client as JSON.
-    """
+    """WebSocket endpoint for real-time conversation with the AI tutor."""
     await websocket.accept()
 
     try:
@@ -71,7 +67,6 @@ async def conversation_ws(websocket: WebSocket) -> None:
                 )
                 continue
 
-            # Check if demo is already complete
             state = get_session_state()
             if state.demo_complete:
                 await websocket.send_json({
@@ -82,6 +77,7 @@ async def conversation_ws(websocket: WebSocket) -> None:
 
             try:
                 turn_result = await _process_turn(
+                    websocket=websocket,
                     msg_type=msg_type,
                     content=content,
                     state=state,
@@ -98,64 +94,60 @@ async def conversation_ws(websocket: WebSocket) -> None:
 
 
 async def _process_turn(
+    websocket: WebSocket,
     msg_type: str,
     content: str,
     state: "SessionState",
 ) -> dict:
     """Process a single conversation turn through the full pipeline.
 
-    Steps:
-        1. STT — transcribe audio to text (or use text directly)
-        2. OpenAI — generate i+1 tutor response
-        3. Backboard — update mastery scores and learner profile
-        4. TTS — synthesize tutor's spoken response to audio / browser signal
-        5. Session — update session state with the completed turn
-
-    Args:
-        msg_type: "text" or "audio" indicating the input type.
-        content: User text or base64-encoded audio bytes.
-        state: Current session state (mutated in place).
-
-    Returns:
-        Dictionary with type="turn_response" and the full turn payload,
-        or type="demo_complete" when all mock turns are exhausted.
+    Sends status messages via WebSocket during processing so the
+    frontend can show progress updates to the user.
     """
-    # 0-indexed turn for service calls (state.turn is 1-indexed)
     turn_index = state.turn - 1
     total_mock_turns = len(MOCK_CONVERSATION)
 
     # ── Step 1: STT ──────────────────────────────────────────────────
     if msg_type == "audio":
+        await websocket.send_json({"type": "status", "step": "transcribing"})
         import base64
 
         audio_bytes = base64.b64decode(content)
         user_text = await _stt_service.transcribe(audio_bytes, turn_index)
     else:
-        # In mock mode the frontend sends text directly; STT is bypassed.
-        # Still run through the service so mock data drives the response.
         if _stt_service.mock_mode:
             user_text = _stt_service._mock_transcribe(turn_index)
         else:
             user_text = content
 
     if not user_text:
-        return {"type": "error", "message": "Empty input — try again."}
+        return {"type": "error", "message": "Could not understand audio — try again or type instead."}
 
     # ── Step 2: OpenAI (i+1 response generation) ─────────────────────
+    await websocket.send_json({"type": "status", "step": "thinking"})
     response_data = await _openai_service.generate_response(
         user_text, turn_index
     )
     tutor_response = TutorResponse(**response_data)
 
-    # ── Step 3: Backboard (mastery & profile tracking) ───────────────
-    await _backboard_service.update_mastery(tutor_response.mastery_scores)
-    await _backboard_service.update_profile(
-        level=tutor_response.user_level_assessment,
-        turn=state.turn,
-        border_update=tutor_response.border_update,
-    )
+    # ── Step 3+4: TTS + Backboard in parallel ────────────────────────
+    await websocket.send_json({"type": "status", "step": "speaking"})
 
-    # ── Step 4: TTS (synthesize tutor spoken response) ───────────────
+    async def _backboard_update():
+        try:
+            await _backboard_service.update_mastery(tutor_response.mastery_scores)
+            await _backboard_service.update_profile(
+                level=tutor_response.user_level_assessment,
+                turn=state.turn,
+                border_update=tutor_response.border_update,
+            )
+        except Exception as exc:
+            logger.error("Backboard update failed (non-fatal): %s", exc)
+
+    # Fire-and-forget Backboard update — it's slow (~12s) but non-critical.
+    # Don't await it; let it complete in the background.
+    asyncio.create_task(_backboard_update())
+
     tts_result = await _tts_service.synthesize(tutor_response.spoken_response)
 
     # ── Step 5: Update session state ─────────────────────────────────
@@ -169,12 +161,11 @@ async def _process_turn(
     state.mastery_scores.update(tutor_response.mastery_scores)
     state.turn += 1
 
-    # Check if all mock turns have been exhausted (only in mock mode)
     if MOCK_MODE and state.turn > total_mock_turns:
         state.demo_complete = True
 
     # ── Build response payload ───────────────────────────────────────
-    payload: dict = {
+    return {
         "type": "turn_response",
         "turn": turn.model_dump(),
         "tts": tts_result,
@@ -184,5 +175,3 @@ async def _process_turn(
             "demo_complete": state.demo_complete,
         },
     }
-
-    return payload
