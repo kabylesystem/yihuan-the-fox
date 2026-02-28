@@ -1012,41 +1012,98 @@
   border: 1px solid var(--border-green-medium);
 }
 
-/* Vocabulary list */
-.conversation-panel__vocab-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+/* Vocabulary cards */
+.conversation-panel__vocab-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conversation-panel__vocab-card {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  padding: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  animation: slide-up 0.4s ease-out backwards;
+  transition: var(--transition-all-fast);
 }
 
-.conversation-panel__vocab-item {
+.conversation-panel__vocab-card:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-accent);
+  transform: translateY(-1px);
+}
+
+.conversation-panel__vocab-card-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  font-size: 12px;
-  padding: 4px 8px;
-  background: var(--bg-surface);
-  border-radius: 6px;
 }
 
 .conversation-panel__vocab-word {
   color: var(--accent-primary);
   font-weight: 600;
-  min-width: 80px;
+  font-size: 13px;
 }
 
 .conversation-panel__vocab-translation {
   color: var(--text-label);
-  flex: 1;
+  font-size: 12px;
 }
 
 .conversation-panel__vocab-pos {
   color: var(--text-muted);
   font-size: 11px;
   font-style: italic;
+}
+
+.conversation-panel__vocab-badge {
+  font-size: 9px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+
+.conversation-panel__vocab-badge--new {
+  background: var(--overlay-green);
+  color: var(--accent-green);
+  border: 1px solid var(--border-green-medium);
+  box-shadow: 0 0 12px rgba(68, 255, 68, 0.3);
+  animation: glow-pulse-green 2s ease-in-out infinite;
+}
+
+.conversation-panel__vocab-badge--reactivated {
+  background: var(--overlay-warning);
+  color: var(--accent-yellow);
+  border: 1px solid var(--border-yellow-medium);
+  box-shadow: 0 0 12px rgba(255, 170, 68, 0.3);
+  animation: glow-pulse-orange 2s ease-in-out infinite;
+}
+
+/* Glow pulse animations for vocabulary badges */
+@keyframes glow-pulse-green {
+  0%, 100% {
+    box-shadow: 0 0 12px rgba(68, 255, 68, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(68, 255, 68, 0.6);
+  }
+}
+
+@keyframes glow-pulse-orange {
+  0%, 100% {
+    box-shadow: 0 0 12px rgba(255, 170, 68, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(255, 170, 68, 0.6);
+  }
 }
 
 /* Tags */

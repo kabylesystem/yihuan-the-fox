@@ -148,15 +148,37 @@ function TutorMessage({ response }) {
             {vocabulary_breakdown && vocabulary_breakdown.length > 0 && (
               <div className="conversation-panel__section">
                 <h4 className="conversation-panel__section-title">Vocabulary</h4>
-                <ul className="conversation-panel__vocab-list">
-                  {vocabulary_breakdown.map((item, idx) => (
-                    <li key={idx} className="conversation-panel__vocab-item">
-                      <span className="conversation-panel__vocab-word">{item.word}</span>
-                      <span className="conversation-panel__vocab-translation">{item.translation}</span>
-                      <span className="conversation-panel__vocab-pos">{item.part_of_speech}</span>
-                    </li>
-                  ))}
-                </ul>
+                <div className="conversation-panel__vocab-cards">
+                  {vocabulary_breakdown.map((item, idx) => {
+                    // Determine if this word is new or reactivated
+                    const isNew = new_elements && new_elements.includes(item.word);
+                    const isReactivated = reactivated_elements && reactivated_elements.includes(item.word);
+
+                    return (
+                      <div
+                        key={idx}
+                        className="conversation-panel__vocab-card"
+                        style={{ animationDelay: `${idx * 0.1}s` }}
+                      >
+                        <div className="conversation-panel__vocab-card-header">
+                          <span className="conversation-panel__vocab-word">{item.word}</span>
+                          {isNew && (
+                            <span className="conversation-panel__vocab-badge conversation-panel__vocab-badge--new">
+                              New
+                            </span>
+                          )}
+                          {isReactivated && (
+                            <span className="conversation-panel__vocab-badge conversation-panel__vocab-badge--reactivated">
+                              Reactivated
+                            </span>
+                          )}
+                        </div>
+                        <span className="conversation-panel__vocab-translation">{item.translation}</span>
+                        <span className="conversation-panel__vocab-pos">{item.part_of_speech}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
