@@ -9,12 +9,17 @@
  * The component updates after each conversation turn as the backend
  * returns new mastery_scores, level, and border_update data.
  *
+ * When the CEFR level changes (e.g., A1 → A1+), a confetti particle burst
+ * animation is triggered around the badge to celebrate the achievement.
+ *
  * Props:
  *  - level: string — current CEFR level (e.g., "A1", "A1+", "A2")
  *  - masteryScores: object — { concept: score } where score is 0.0-1.0
  *  - borderUpdate: string — latest linguistic border description
  *  - currentTurn: number — current turn number for context display
  */
+
+import { useState, useEffect, useRef } from 'react';
 
 /**
  * Map CEFR levels to badge colors for visual progression.
@@ -54,7 +59,23 @@ export default function LearnerProgress({
   borderUpdate,
   currentTurn,
 }) {
+  // Track previous level to detect changes
+  const prevLevelRef = useRef(level);
+  const [showLevelUp, setShowLevelUp] = useState(false);
+
   const badgeColor = LEVEL_COLORS[level] || LEVEL_COLORS.A1;
+
+  // Detect level-up and trigger confetti animation
+  useEffect(() => {
+    if (prevLevelRef.current && prevLevelRef.current !== level && level) {
+      // Level changed! Trigger confetti burst
+      setShowLevelUp(true);
+      // Hide confetti after animation completes (2s)
+      const timer = setTimeout(() => setShowLevelUp(false), 2000);
+      return () => clearTimeout(timer);
+    }
+    prevLevelRef.current = level;
+  }, [level]);
 
   // Sort mastery entries by score descending for visual clarity
   const sortedEntries = masteryScores
@@ -93,6 +114,23 @@ export default function LearnerProgress({
           >
             {level || 'A1'}
           </span>
+
+          {/* Confetti particles for level-up animation */}
+          {showLevelUp && (
+            <div className="learner-progress__confetti-container">
+              {[...Array(12)].map((_, i) => (
+                <div
+                  key={i}
+                  className="learner-progress__confetti-particle"
+                  style={{
+                    '--particle-angle': `${i * 30}deg`,
+                    '--particle-delay': `${i * 0.05}s`,
+                    '--particle-color': i % 3 === 0 ? badgeColor : i % 3 === 1 ? '#6a9fff' : '#44ff44',
+                  }}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Overall mastery indicator */}

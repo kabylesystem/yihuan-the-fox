@@ -213,6 +213,21 @@
   }
 }
 
+/* Confetti-burst: particle burst animation for level-up celebration */
+@keyframes confetti-burst {
+  0% {
+    transform: translate(0, 0) scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(cos(var(--particle-angle)) * 120px), calc(sin(var(--particle-angle)) * 120px)) scale(0) rotate(720deg);
+    opacity: 0;
+  }
+}
+
 /* Node-scale-in: new nodes scale from 0 to 1 with white flash */
 @keyframes node-scale-in {
   0% {
@@ -1467,6 +1482,29 @@
   font-weight: 800;
   letter-spacing: -0.5px;
   transition: var(--transition-color);
+}
+
+/* Confetti container and particles for level-up animation */
+.learner-progress__confetti-container {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.learner-progress__confetti-particle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  background: var(--particle-color);
+  border-radius: 50%;
+  box-shadow: 0 0 12px var(--particle-color), 0 0 6px var(--particle-color);
+  animation: confetti-burst 1.5s ease-out var(--particle-delay) forwards;
 }
 
 /* Overall mastery */
