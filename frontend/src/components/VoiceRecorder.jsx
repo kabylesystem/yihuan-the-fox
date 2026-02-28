@@ -59,6 +59,7 @@ export default function VoiceRecorder({
 }) {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
@@ -141,13 +142,14 @@ export default function VoiceRecorder({
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start(100); // Collect data every 100ms
       setIsRecording(true);
+      setPermissionDenied(false); // Clear error on successful start
 
       if (onTranscriptUpdate) {
         onTranscriptUpdate({ status: 'recording', text: '' });
       }
     } catch {
-      // Microphone access denied or unavailable — fall back to mock text
-      handleMockAdvance();
+      // Microphone access denied or unavailable
+      setPermissionDenied(true);
     }
   }, [sendMessage, onTranscriptUpdate]);
 
@@ -220,6 +222,8 @@ export default function VoiceRecorder({
   } else if (isRecording) {
     buttonLabel = 'Stop';
     buttonClass += ' voice-recorder__button--recording';
+  } else if (permissionDenied) {
+    buttonClass += ' voice-recorder__button--error';
   }
 
   return (
@@ -297,6 +301,12 @@ export default function VoiceRecorder({
           <span className="voice-recorder__pulse" />
           <span className="voice-recorder__indicator-text">Listening...</span>
           <span className="voice-recorder__timer">{formatTime(recordingTime)}</span>
+        </div>
+      )}
+      {permissionDenied && (
+        <div className="voice-recorder__error">
+          <span className="voice-recorder__error-icon">⚠️</span>
+          <span className="voice-recorder__error-text">Microphone access required</span>
         </div>
       )}
     </div>
