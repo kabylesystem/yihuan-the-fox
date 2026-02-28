@@ -69,6 +69,16 @@ function glowRadius(mastery) {
   return 4 + mastery * 8;
 }
 
+/**
+ * Get glow halo color based on mastery thresholds.
+ * Green for mastery > 0.7, Yellow for mastery > 0.4, Red for mastery < 0.4.
+ */
+function getGlowColor(mastery) {
+  if (mastery > 0.7) return '#44ff44';  // Green
+  if (mastery > 0.4) return '#ffaa00';  // Yellow
+  return '#ff4444';                      // Red
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 /**
@@ -252,7 +262,11 @@ export default function KnowledgeGraph({ nodes, links }) {
       .attr('fill', (d) => masteryColorScale(d.mastery))
       .attr('stroke', '#1a1e2e')
       .attr('stroke-width', 2)
-      .style('filter', 'url(#node-glow)')
+      .style('filter', (d) => {
+        const glowColor = getGlowColor(d.mastery);
+        const blur = glowRadius(d.mastery);
+        return `drop-shadow(0 0 ${blur}px ${glowColor}) drop-shadow(0 0 ${blur * 1.5}px ${glowColor})`;
+      })
       .style('cursor', 'grab');
 
     // Node label text
