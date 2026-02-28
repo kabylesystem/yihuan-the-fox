@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+websockets
+httpx
+backboard-sdk
+openai
+speechmatics-python
+python-dotenv
+pydantic
+pytest
+pytest-asyncio
