@@ -1,0 +1,535 @@
+# 🤖 NEURAL-SYNC LANGUAGE LAB — AUTONOMOUS AGENT BUILD PLAN
+
+---
+
+## 🌍 CONTEXT: WHAT WE'RE BUILDING AND WHY
+
+### The Hackathon
+We are participating in **"Activate Your Voice"**, a 24-hour residency hackathon organized by **Speechmatics & The AI Collective Paris** (Feb 28 3PM → Mar 1 8PM, at Builders Factory, Paris 75017). 100 builders, teams of 3-6, competing across 3 tracks with cash prizes up to €3,300 and ~€80,000 in tooling credits.
+
+We are competing in **Track 1: Communication & Human Experience** — "Voice agents that enhance how humans learn, communicate, and interact using memory."
+
+The hackathon's mission is to build voice-based conversational systems that: take intelligent actions, build deep memory, demonstrate adaptive behavior intelligence, and continuously improve. Our project hits ALL four criteria.
+
+### The Product: Neural-Sync Language Lab
+We are building a **voice-first adaptive language learning platform** that reimagines how people learn languages. Instead of isolated flashcards and vocabulary drills, Neural-Sync treats language acquisition as a **growing neural network of connected sentences and structures**.
+
+**Core concept:** The user has a real-time voice conversation with an AI tutor. The system maps the user's "linguistic borders" — the edge of what they can currently express — and always pushes them exactly one step beyond (Krashen's i+1 theory). Every sentence ever learned is stored with a mastery score and decay timer. The system forces active retrieval of old structures in new contexts to prevent forgetting. A stunning interactive **Knowledge Graph** visualizes the user's growing language brain in real-time.
+
+### Why This Wins
+1. **All 3 sponsors are deeply integrated** — Speechmatics (voice), Backboard.io (memory), OpenAI (intelligence) — each is architecturally essential, not bolted on
+2. **Voice-first by design** — this is a voice hackathon, and our product IS the voice conversation
+3. **Memory is the product** — Backboard isn't a nice-to-have, it IS the learning engine
+4. **The Knowledge Graph is an instant visual "wow"** for judges
+5. **Grounded in real linguistics** — i+1 theory, spaced retrieval, active recall
+6. **Real-world utility** — language learning is a massive market, this is a credible product
+
+### Sponsors & APIs You MUST Use
+| Sponsor | API | Role in our project |
+|---|---|---|
+| **Speechmatics** | Real-time STT WebSocket API | Voice input — transcribes user speech in real-time, multilingual, pronunciation confidence |
+| **Backboard.io** | Memory + LLM routing API (`pip install backboard-sdk`) | Persistent memory — stores learner profile, sentence mastery, decay tracking, entity relationships |
+| **OpenAI** | GPT-5.3-Codex + TTS API | Intelligence — generates i+1 adaptive sentences, evaluates level, manages pedagogical logic, voice output |
+
+### Project Location
+**The git repo is already initialized at: `/home/user/42/Hackathons/voiceAI`**
+
+All work happens in this directory. Do NOT create a new project folder.
+
+---
+
+> **This file is your complete instruction set.** Follow it sequentially. Each phase has a clear checkpoint — do NOT proceed to the next phase until the checkpoint passes. If you hit a blocker, document it and move to the next task within the same phase.
+
+---
+
+## ⚙️ PHASE 0: ENVIRONMENT SETUP
+
+### 0.1 — Project Scaffolding
+- [ ] Work inside the existing repo: `/home/user/42/Hackathons/voiceAI`
+- [ ] Initialize a **React** frontend with Vite: `npm create vite@latest frontend -- --template react`
+- [ ] Initialize a **Python FastAPI** backend in `backend/`
+- [ ] Create `.env.example` at root with placeholders for:
+  ```
+  SPEECHMATICS_API_KEY=
+  BACKBOARD_API_KEY=
+  OPENAI_API_KEY=
+  OPENAI_ORG_ID=
+  ```
+- [ ] Create `.gitignore` (exclude `.env`, `node_modules`, `__pycache__`, `.venv`)
+- [ ] Copy `.env.example` → `.env` (the human will fill in the actual keys)
+
+### 0.2 — Backend Dependencies
+Install the following in `backend/requirements.txt`:
+```
+fastapi
+uvicorn[standard]
+websockets
+httpx
+backboard-sdk
+openai
+python-dotenv
+pydantic
+```
+Run: `pip install -r requirements.txt`
+
+### 0.3 — Frontend Dependencies
+```bash
+cd frontend
+npm install
+npm install d3 @types/d3
+npm install recharts          # fallback for simple charts
+```
+
+### 0.4 — Verify API Keys
+Create a script `backend/test_keys.py` that:
+1. Loads `.env`
+2. Tests Speechmatics API key — make a simple GET request to their API to verify auth
+3. Tests Backboard API key — create a throwaway assistant, then delete it
+4. Tests OpenAI API key — send a simple completion request
+5. Prints ✅ or ❌ for each
+
+**🔒 CHECKPOINT 0:** All 3 API keys verified. Frontend scaffolding runs (`npm run dev`). Backend runs (`uvicorn main:app`). Proceed only when all green.
+
+---
+
+## 🎤 PHASE 1: SPEECHMATICS VOICE INPUT (Priority: CRITICAL)
+
+This is the foundation. Nothing works without voice input.
+
+### 1.1 — Understand the Speechmatics Real-Time API
+- Read: https://docs.speechmatics.com/#real-time-api
+- Speechmatics uses a **WebSocket** connection for real-time STT
+- Flow: open WS → send audio chunks → receive transcription events
+- Key events: `AddTranscript` (partial), `AddTranscription` (final)
+- Auth: API key goes in the WS connection URL or headers
+
+### 1.2 — Backend: Speechmatics WebSocket Proxy
+Create `backend/services/speechmatics_service.py`:
+- Opens a WebSocket connection to Speechmatics RT API
+- Accepts audio chunks from the frontend (via our own WebSocket)
+- Forwards audio to Speechmatics
+- Receives transcription events and forwards them back to frontend
+- Handles connection lifecycle (open, close, error, reconnect)
+- Configuration:
+  - Language: `auto` (or configurable, start with `fr` for demo)
+  - Audio format: PCM 16-bit, 16kHz mono (standard browser MediaRecorder output)
+  - Enable `word_confidence` for pronunciation scoring later
+
+### 1.3 — Backend: WebSocket Endpoint
+In `backend/main.py`:
+- Create a FastAPI WebSocket endpoint: `ws://localhost:8000/ws/session`
+- On connect: initialize a Speechmatics connection for this user
+- On audio message: forward to Speechmatics
+- On Speechmatics transcription: forward to frontend
+- Handle disconnect gracefully
+
+### 1.4 — Frontend: Mic Capture
+Create `frontend/src/hooks/useAudioCapture.js`:
+- Use `navigator.mediaDevices.getUserMedia({ audio: true })`
+- Use `MediaRecorder` or `AudioWorklet` to get PCM chunks
+- Stream chunks over WebSocket to backend
+- Handle permissions, errors, browser compatibility
+
+### 1.5 — Frontend: Voice Interface Component
+Create `frontend/src/components/VoiceInterface.jsx`:
+- Big mic button (tap to start/stop)
+- Visual audio level indicator (waveform or pulsing circle)
+- Live transcription display as text comes in
+- Clear distinction between partial (gray) and final (white) transcriptions
+
+**🔒 CHECKPOINT 1:** User presses mic → speaks → sees real-time transcription on screen. This MUST work before anything else. Test with French and English.
+
+---
+
+## 🧠 PHASE 2: OPENAI INTELLIGENCE ENGINE (Priority: CRITICAL)
+
+### 2.1 — Core System Prompt
+Create `backend/services/openai_service.py` with the following system prompt architecture:
+
+```python
+SYSTEM_PROMPT = """
+You are Neural-Sync, an adaptive language tutor that uses the i+1 method.
+
+## Your Approach
+- You ALWAYS respond in the TARGET language the user is learning
+- You evaluate the user's current level from their speech
+- You generate the NEXT sentence that is exactly ONE step above their current ability (i+1)
+- You naturally weave in retrieval of previously learned structures
+
+## Current Session Context
+- Target language: {target_language}
+- Native language: {native_language}
+- User's current linguistic border: {border_summary}
+- Recently learned sentences: {recent_sentences}
+- Sentences at risk of decay (not practiced recently): {decay_risk_sentences}
+
+## Rules
+1. Keep responses SHORT — 1-2 sentences max for the i+1 prompt
+2. After the i+1 prompt, provide a brief translation in brackets if the sentence contains new elements
+3. If the user makes an error, gently correct it and re-prompt
+4. Every 3-4 exchanges, naturally reuse a structure from {decay_risk_sentences}
+5. Track what grammar/vocabulary is NEW vs KNOWN in your response
+
+## Response Format (JSON)
+{
+  "spoken_response": "The sentence you say to the user (in target language)",
+  "translation_hint": "Brief translation of new elements only",
+  "new_elements": ["list", "of", "new", "vocab/grammar", "introduced"],
+  "reactivated_elements": ["list", "of", "old", "elements", "reused"],
+  "user_level_assessment": "A1/A2/B1/B2/C1/C2",
+  "border_update": "What the user can now express that they couldn't before",
+  "mastery_scores": {"sentence_or_structure": 0.0-1.0}
+}
+"""
+```
+
+### 2.2 — Conversation Handler
+In `openai_service.py`:
+- Function `process_user_input(transcription, session_context) → GPT response`
+- Calls OpenAI Chat Completion API with the system prompt + user transcription
+- Parses the JSON response
+- Returns structured data for memory storage and frontend display
+
+### 2.3 — TTS Output
+- Use **OpenAI TTS API** (`/v1/audio/speech`) to convert `spoken_response` to audio
+- Model: `tts-1` (fast) or `tts-1-hd` (quality — use for demo)
+- Voice: choose a natural voice appropriate for the target language
+- Stream the audio back to frontend via WebSocket
+- Alternative fallback: Web Speech API (`SpeechSynthesis`) on the frontend
+
+**🔒 CHECKPOINT 2:** Full loop works: User speaks → Speechmatics transcribes → GPT generates i+1 response → TTS speaks it back. No memory yet, just the raw conversation loop.
+
+---
+
+## 💾 PHASE 3: BACKBOARD.IO MEMORY LAYER (Priority: CRITICAL)
+
+This is what makes the project special. Memory turns a chatbot into a learning system.
+
+### 3.1 — Backboard Setup
+Create `backend/services/backboard_service.py`:
+
+```python
+from backboard import BackboardClient
+
+client = BackboardClient(api_key=BACKBOARD_API_KEY)
+
+# Create one assistant for the Neural-Sync tutor
+assistant = await client.create_assistant(
+    name="Neural-Sync Tutor",
+    system_prompt="Language learning tutor with persistent memory"
+)
+
+# Each user/session gets a thread (persistent across sessions)
+thread = await client.create_thread(assistant.assistant_id)
+```
+
+### 3.2 — Memory Write: After Each Exchange
+After GPT processes the user's input, store in Backboard:
+```python
+await client.add_message(
+    thread_id=thread.thread_id,
+    content=f"""
+    USER_SAID: {transcription}
+    LEVEL: {gpt_response.user_level_assessment}
+    NEW_ELEMENTS_LEARNED: {gpt_response.new_elements}
+    REACTIVATED: {gpt_response.reactivated_elements}
+    MASTERY_SCORES: {gpt_response.mastery_scores}
+    TIMESTAMP: {datetime.now().isoformat()}
+    BORDER_UPDATE: {gpt_response.border_update}
+    """,
+    memory="Auto"  # Backboard automatically extracts and stores relevant facts
+)
+```
+
+### 3.3 — Memory Read: Before Each GPT Call
+Before calling GPT, query Backboard for context:
+```python
+# Get the user's learning history
+memory_context = await client.add_message(
+    thread_id=thread.thread_id,
+    content="What has this user learned so far? What are their linguistic borders? What sentences are at risk of decay?",
+    memory="Auto"
+)
+```
+Use this response to populate the `{border_summary}`, `{recent_sentences}`, and `{decay_risk_sentences}` in the GPT system prompt.
+
+### 3.4 — Decay Tracking Logic
+Build a simple decay model:
+- Each learned element gets a `last_activated` timestamp
+- Decay risk = elements not activated in the last N exchanges (start with N=10)
+- Store this in Backboard memory per element
+- GPT is instructed to weave these at-risk elements into new prompts
+
+### 3.5 — Orchestrator: Tie It All Together
+Create `backend/services/orchestrator.py`:
+```python
+async def process_learning_turn(transcription: str, session_id: str):
+    # 1. Read memory from Backboard
+    memory = await backboard_service.get_user_context(session_id)
+    
+    # 2. Build GPT prompt with memory context
+    gpt_response = await openai_service.process_user_input(transcription, memory)
+    
+    # 3. Write new learnings to Backboard
+    await backboard_service.store_learning(session_id, gpt_response)
+    
+    # 4. Generate TTS audio
+    audio = await openai_service.text_to_speech(gpt_response.spoken_response)
+    
+    # 5. Build graph update data
+    graph_update = build_graph_update(gpt_response)
+    
+    # 6. Return everything to frontend
+    return {
+        "audio": audio,
+        "transcript": gpt_response.spoken_response,
+        "translation": gpt_response.translation_hint,
+        "graph_update": graph_update,
+        "level": gpt_response.user_level_assessment
+    }
+```
+
+**🔒 CHECKPOINT 3:** The system remembers. Start a conversation, learn 5 sentences, then ask something related to sentence #1 — the system should reference it. Demonstrate that Backboard is storing and retrieving learning history. This is the KEY demo moment.
+
+---
+
+## 🕸️ PHASE 4: KNOWLEDGE GRAPH VISUALIZATION (Priority: HIGH)
+
+This is the "wow factor" for the demo. Judges will remember this.
+
+### 4.1 — Graph Data Model
+Define the graph structure:
+```javascript
+{
+  nodes: [
+    {
+      id: "sentence_1",
+      label: "Je voudrais un café",
+      type: "sentence",          // or "grammar", "vocab"
+      mastery: 0.85,             // 0-1
+      lastActivated: "2026-02-28T18:30:00",
+      level: "A1",
+      isNew: false,
+      isDecaying: false
+    }
+  ],
+  links: [
+    {
+      source: "sentence_1",
+      target: "sentence_3",
+      relationship: "shared_grammar",  // "Je voudrais..." pattern
+      label: "conditionnel"
+    }
+  ]
+}
+```
+
+### 4.2 — D3.js Force-Directed Graph
+Create `frontend/src/components/KnowledgeGraph.jsx`:
+- Force-directed graph layout (d3-force)
+- **Node appearance:**
+  - Size = number of connections (more connected = more central to knowledge)
+  - Color gradient: 🟢 green (mastered) → 🟡 yellow (at risk) → 🔴 red (decaying)
+  - Glow/pulse animation on newly learned nodes
+  - Opacity: full for recent, fading for old/unused
+- **Edge appearance:**
+  - Thickness = strength of connection
+  - Color matches the grammar type (e.g., blue for verbs, green for nouns)
+- **Interactions:**
+  - Hover on node → show sentence + translation + mastery %
+  - Zoom and pan
+  - New nodes animate in with a "growing" effect
+- **Real-time updates:**
+  - When GPT returns new elements, add nodes and edges with smooth transitions
+  - When elements are reactivated, pulse the corresponding nodes
+
+### 4.3 — Graph Update Pipeline
+- Backend sends `graph_update` events via WebSocket after each exchange
+- Frontend receives and merges into existing graph state
+- Use React state + D3 together (D3 for layout, React for rendering — or pure D3 in a ref)
+
+### 4.4 — Visual Design
+The graph should feel like a **living neural network**:
+- Dark background (deep navy or black)
+- Nodes glow like neurons firing
+- Connections pulse when activated
+- Cluster formation: related concepts naturally group together
+- The overall effect: watching a brain learn in real-time
+
+**🔒 CHECKPOINT 4:** Knowledge Graph renders with real data from a conversation. Nodes appear as user learns, colors reflect mastery, hover shows details. This is demo-ready.
+
+---
+
+## 🎨 PHASE 5: UI/UX POLISH (Priority: MEDIUM)
+
+### 5.1 — Layout
+Design a clean, immersive layout:
+```
+┌─────────────────────────────────────────────────────────┐
+│  NEURAL-SYNC LANGUAGE LAB            [Level: A2] [FR→EN]│
+├──────────────────────────┬──────────────────────────────┤
+│                          │                              │
+│   KNOWLEDGE GRAPH        │   CONVERSATION PANEL         │
+│   (D3.js - 60% width)   │   (40% width)                │
+│                          │                              │
+│   [Live neural network   │   🟢 Tutor: "Qu'est-ce que  │
+│    visualization]        │   tu voudrais manger?"       │
+│                          │                              │
+│                          │   🔵 You: "Je voudrais..."   │
+│                          │                              │
+│                          │   💡 New: "manger" (to eat)  │
+│                          │   🔄 Reactivated: "voudrais" │
+│                          │                              │
+│                          ├──────────────────────────────┤
+│                          │   [  🎤 Hold to Speak  ]     │
+│                          │   ~~~~~~~~~~~~ waveform      │
+└──────────────────────────┴──────────────────────────────┘
+```
+
+### 5.2 — Color Palette
+- Background: `#0a0a1a` (deep space)
+- Primary accent: `#6366f1` (indigo — neural glow)
+- Success/mastered: `#22c55e`
+- Warning/decay risk: `#eab308`
+- Danger/decaying: `#ef4444`
+- Text: `#f8fafc`
+- Muted text: `#94a3b8`
+
+### 5.3 — Animations
+- Mic button: pulse animation when listening
+- New nodes: scale-in from 0 with spring easing
+- Reactivated nodes: brief bright pulse
+- Conversation messages: slide-in from bottom
+- Level-up: celebratory particle effect (optional, nice-to-have)
+
+### 5.4 — Session Start Flow
+When the user opens the app:
+1. Select target language (dropdown: French, English, Spanish, German, etc.)
+2. Select native language
+3. Optional: "Tell me about your experience with {target_language}" (voice)
+4. System assesses initial level
+5. Learning begins
+
+**🔒 CHECKPOINT 5:** The app looks polished and professional. The layout is intuitive. Animations are smooth. Ready for demo.
+
+---
+
+## 🎬 PHASE 6: DEMO PREPARATION
+
+### 6.1 — Demo Script (3 minutes)
+
+**Minute 1 — The Problem + Vision (30s)**
+"Traditional language learning apps treat words as isolated flashcards. Your brain doesn't work that way. It builds neural networks of connected meaning. Neural-Sync makes that visible."
+
+**Minute 1-2 — Live Demo (1.5 min)**
+- Start a French learning session
+- Say a simple sentence: "Bonjour"
+- System responds with i+1: slightly more complex
+- Show 3-4 exchanges, each building on the last
+- Point out the Knowledge Graph growing in real-time
+- Show a reactivation moment: "Notice how it brought back a structure from earlier"
+
+**Minute 2-3 — Tech + Memory (30s)**
+- "Under the hood: Speechmatics for real-time voice, Backboard.io for persistent memory, OpenAI for adaptive intelligence"
+- "The system remembers everything you've learned and prevents decay through active retrieval"
+- Show the graph and its mastery colors
+
+**Minute 3 — Vision (30s)**
+- "This is day 1. Imagine month 6 — your entire linguistic neural network, visible, growing, never forgetting."
+
+### 6.2 — Backup Plan
+- Record a video demo in case of live tech issues
+- Prepare screenshots of the Knowledge Graph in various states
+- Have a text-input fallback mode in case mic fails at the venue
+
+---
+
+## 🚨 CRITICAL IMPLEMENTATION NOTES
+
+### Error Handling
+- All API calls must have try/catch with fallbacks
+- If Speechmatics disconnects: show "Reconnecting..." and auto-retry
+- If Backboard is slow: cache locally and sync later
+- If OpenAI fails: retry once, then show a generic "Let me think..." message
+
+### Performance
+- Speechmatics streaming: minimize latency, use chunked audio
+- GPT calls: use `stream=True` for perceived speed
+- Knowledge Graph: limit to ~100 visible nodes max, collapse old clusters
+- Use `requestAnimationFrame` for D3 animations
+
+### Demo Day Checklist
+- [ ] All API keys loaded and verified
+- [ ] Backend running on localhost or deployed (Render / Railway / etc.)
+- [ ] Frontend running and accessible
+- [ ] Mic permissions pre-granted in browser
+- [ ] Backup hotspot for internet
+- [ ] Phone charged for backup demo video
+- [ ] Team roles clear: who presents, who does live demo, who handles tech
+
+---
+
+## 📋 QUICK REFERENCE: API ENDPOINTS TO BUILD
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| WS | `/ws/session` | Main session WebSocket (audio in, transcription + responses out) |
+| POST | `/api/session/start` | Initialize a new learning session (creates Backboard thread) |
+| GET | `/api/session/{id}/graph` | Get current Knowledge Graph data |
+| GET | `/api/session/{id}/stats` | Get session statistics |
+| POST | `/api/session/{id}/config` | Set target/native language |
+
+---
+
+## 📂 Project Structure (target)
+
+```
+/home/user/42/Hackathons/voiceAI/
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── VoiceInterface.jsx
+│   │   │   ├── KnowledgeGraph.jsx
+│   │   │   ├── ConversationPanel.jsx
+│   │   │   └── Dashboard.jsx
+│   │   ├── hooks/
+│   │   │   ├── useSpeechmatics.js
+│   │   │   └── useAudioCapture.js
+│   │   ├── services/
+│   │   │   └── api.js
+│   │   └── App.jsx
+│   └── package.json
+├── backend/
+│   ├── main.py
+│   ├── services/
+│   │   ├── speechmatics_service.py
+│   │   ├── backboard_service.py
+│   │   ├── openai_service.py
+│   │   └── orchestrator.py
+│   ├── models/
+│   │   └── schemas.py
+│   └── requirements.txt
+├── .env
+├── .env.example
+├── .gitignore
+└── README.md
+```
+
+---
+
+## 🏁 EXECUTION ORDER SUMMARY
+
+```
+PHASE 0 → Environment + verify keys
+PHASE 1 → Speechmatics voice input (CRITICAL)
+PHASE 2 → OpenAI conversation loop (CRITICAL)
+PHASE 3 → Backboard memory layer (CRITICAL)
+  >>> At this point you have a working demo <<<
+PHASE 4 → Knowledge Graph (HIGH — wow factor)
+PHASE 5 → UI polish (MEDIUM)
+PHASE 6 → Demo prep (DAY-OF)
+```
+
+**The first 3 phases ARE the product. Phases 4-5 make it win.**
+
+Good luck. Build fast, ship fast, iterate. 🚀
