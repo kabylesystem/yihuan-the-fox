@@ -736,8 +736,8 @@
 }
 
 .transcript-display__wave-bar {
-  width: 3px;
-  height: 12px;
+  width: 6px;
+  height: 24px;
   background: var(--accent-primary);
   border-radius: 2px;
   animation: wave-bar 1.2s ease-in-out infinite;
