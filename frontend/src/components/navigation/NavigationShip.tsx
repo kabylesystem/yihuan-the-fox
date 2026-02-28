@@ -19,7 +19,6 @@ export function NavigationShip(props: {
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const thrusterRef = useRef<THREE.Mesh>(null);
-  const pulseRef = useRef<THREE.Mesh>(null);
 
   const materials = useMemo(() => {
     const hull = new THREE.MeshStandardMaterial({
@@ -78,13 +77,6 @@ export function NavigationShip(props: {
       m.opacity = 0.25 + 0.55 * (0.35 + 0.65 * props.thruster01);
       thrusterRef.current.scale.setScalar(0.9 + 0.25 * props.thruster01);
     }
-
-    if (pulseRef.current) {
-      const p = 0.35 + 0.65 * props.energyPulse01;
-      const m = pulseRef.current.material as THREE.MeshBasicMaterial;
-      m.opacity = 0.12 + 0.18 * p;
-      pulseRef.current.scale.setScalar(1.0 + 0.25 * Math.sin(t * 1.8) + 0.25 * p);
-    }
   });
 
   return (
@@ -132,11 +124,6 @@ export function NavigationShip(props: {
         </mesh>
         <pointLight intensity={1.5} color={COLORS.glow} distance={2.6} />
       </group>
-
-      {/* Subtle energy pulse around ship */}
-      <mesh ref={pulseRef} material={materials.glowSoft}>
-        <sphereGeometry args={[0.55, 18, 18]} />
-      </mesh>
     </group>
   );
 }

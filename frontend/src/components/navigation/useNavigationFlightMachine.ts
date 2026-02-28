@@ -401,23 +401,23 @@ export function useNavigationFlightMachine(opts: {
     const target = targetRef.current;
 
     if (state === 'appear' || state === 'idle' || state === 'hold') {
-      o.hudPrimary = 'Engines online. Setting course…';
-      o.hudSecondary = 'Hold steady. Navigation link engaged.';
+      o.hudPrimary = "Engines online. Let's check for a fading nebula signal.";
+      o.hudSecondary = 'Stand by — scanning the map ahead.';
     }
 
     if (state === 'assess') {
-      o.hudPrimary = 'Scanning neural map…';
-      o.hudSecondary = 'Looking for fading signals.';
+      o.hudPrimary = 'Scanning for fading nebula nodes…';
+      o.hudSecondary = 'Searching for the next best target.';
     }
 
     if (state === 'relightTravel') {
-      o.hudPrimary = 'Signal decay detected ahead.';
-      o.hudSecondary = 'Moving to intercept.';
+      o.hudPrimary = 'Fading signal detected. Moving in.';
+      o.hudSecondary = 'Closing distance for a relight check.';
     }
 
     if (state === 'exploreTravel') {
-      o.hudPrimary = 'Advancing into the frontier.';
-      o.hudSecondary = 'Plotting a safe expansion corridor.';
+      o.hudPrimary = 'No urgent fades detected. Heading to the frontier.';
+      o.hudSecondary = 'Plotting an expansion corridor.';
     }
 
     if (state === 'focus' || state === 'starcoreOpen') {
