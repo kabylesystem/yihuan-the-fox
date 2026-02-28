@@ -1773,3 +1773,163 @@
     gap: 8px;
   }
 }
+
+/* ── Mobile breakpoint (768px) ───────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  /* Switch to single-column stack layout */
+  .app__main {
+    flex-direction: column;
+    padding: 12px;
+    gap: 12px;
+  }
+
+  /* Reset panel flex to allow natural stacking */
+  .app__panel--left,
+  .app__panel--right {
+    flex: none;
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Graph section on top with fixed height */
+  .app__graph-section {
+    min-height: 400px;
+    height: 400px;
+  }
+
+  /* Conversation section below with flexible height */
+  .app__conversation-section {
+    flex: 1;
+    min-height: 300px;
+  }
+
+  /* Adjust header for mobile */
+  .app__header {
+    padding: 0 16px;
+  }
+
+  .app__header-content {
+    padding: 10px 0;
+  }
+
+  .app__branding {
+    gap: 8px;
+  }
+
+  .app__logo {
+    font-size: 24px;
+  }
+
+  .app__title {
+    font-size: 18px;
+  }
+
+  .app__subtitle {
+    font-size: 11px;
+    padding: 2px 8px;
+  }
+
+  /* Adjust session bar for mobile */
+  .session-bar {
+    padding: 0 16px;
+  }
+
+  .session-bar__content {
+    padding: 10px 0;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .session-bar__section {
+    gap: 2px;
+  }
+
+  .session-bar__label {
+    font-size: 10px;
+  }
+
+  .session-bar__value {
+    font-size: 14px;
+  }
+
+  .session-bar__language-display {
+    font-size: 18px;
+  }
+
+  /* Adjust voice section for mobile */
+  .app__voice-section {
+    padding: 16px;
+    gap: 10px;
+  }
+
+  .voice-recorder__button {
+    width: 80px;
+    height: 80px;
+  }
+
+  .voice-recorder__icon {
+    font-size: 20px;
+  }
+
+  .voice-recorder__label {
+    font-size: 9px;
+  }
+
+  /* Adjust conversation panel for mobile */
+  .conversation-panel__header {
+    padding: 12px 16px;
+  }
+
+  .conversation-panel__messages {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .conversation-panel__bubble {
+    max-width: 90%;
+  }
+
+  /* Adjust knowledge graph for mobile */
+  .knowledge-graph__header {
+    padding: 12px 16px;
+  }
+
+  .knowledge-graph__legend {
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px 16px;
+    align-items: flex-start;
+  }
+
+  .knowledge-graph__legend-section {
+    width: 100%;
+  }
+
+  /* Adjust learner progress for mobile */
+  .learner-progress__header {
+    padding: 12px 16px;
+  }
+
+  .learner-progress__level-section {
+    flex-direction: column;
+    padding: 14px 16px;
+    gap: 16px;
+    align-items: stretch;
+  }
+
+  .learner-progress__level-badge {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .learner-progress__border-section,
+  .learner-progress__mastery-section {
+    padding: 0 16px 14px;
+  }
+
+  .learner-progress__mastery-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
+  }
+}
