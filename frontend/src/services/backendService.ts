@@ -119,6 +119,7 @@ let reconnectAttempts = 0;
 let connectionStatus: ConnectionStatus = 'disconnected';
 let statusCallback: ((s: ConnectionStatus) => void) | null = null;
 let statusStepCallback: ((step: string) => void) | null = null;
+let ttsCallback: ((tts: any) => void) | null = null;
 let pendingRequest: PendingResolve | null = null;
 
 const MAX_RECONNECTS = 5;
@@ -135,6 +136,11 @@ export function onConnectionStatusChange(cb: (s: ConnectionStatus) => void) {
 /** Register a callback for backend processing status updates (transcribing/thinking/speaking). */
 export function onStatusStep(cb: (step: string) => void) {
   statusStepCallback = cb;
+}
+
+/** Register a callback for TTS audio that arrives after the text response. */
+export function onTTS(cb: (tts: any) => void) {
+  ttsCallback = cb;
 }
 
 export function getConnectionStatus(): ConnectionStatus {
@@ -193,6 +199,12 @@ export function connect(): Promise<boolean> {
         // Status messages are progress updates — don't resolve the pending request
         if (data.type === 'status') {
           statusStepCallback?.(data.step || '');
+          return;
+        }
+
+        // TTS audio arrives after the text response — play it via callback
+        if (data.type === 'tts') {
+          ttsCallback?.(data.tts);
           return;
         }
 

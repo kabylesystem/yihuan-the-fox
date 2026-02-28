@@ -76,13 +76,16 @@ async def conversation_ws(websocket: WebSocket) -> None:
                 continue
 
             try:
-                turn_result = await _process_turn(
+                result = await _process_turn(
                     websocket=websocket,
                     msg_type=msg_type,
                     content=content,
                     state=state,
                 )
-                await websocket.send_json(turn_result)
+                # _process_turn sends turn_response directly via websocket.
+                # If it returns a dict (e.g. error), send it.
+                if result is not None:
+                    await websocket.send_json(result)
             except Exception as exc:
                 logger.exception("Error processing conversation turn")
                 await websocket.send_json(
@@ -130,27 +133,7 @@ async def _process_turn(
     )
     tutor_response = TutorResponse(**response_data)
 
-    # ── Step 3+4: TTS + Backboard in parallel ────────────────────────
-    await websocket.send_json({"type": "status", "step": "speaking"})
-
-    async def _backboard_update():
-        try:
-            await _backboard_service.update_mastery(tutor_response.mastery_scores)
-            await _backboard_service.update_profile(
-                level=tutor_response.user_level_assessment,
-                turn=state.turn,
-                border_update=tutor_response.border_update,
-            )
-        except Exception as exc:
-            logger.error("Backboard update failed (non-fatal): %s", exc)
-
-    # Fire-and-forget Backboard update — it's slow (~12s) but non-critical.
-    # Don't await it; let it complete in the background.
-    asyncio.create_task(_backboard_update())
-
-    tts_result = await _tts_service.synthesize(tutor_response.spoken_response)
-
-    # ── Step 5: Update session state ─────────────────────────────────
+    # ── Step 3: Update session state immediately ────────────────────
     turn = ConversationTurn(
         turn_number=state.turn,
         user_said=user_text,
@@ -164,14 +147,42 @@ async def _process_turn(
     if MOCK_MODE and state.turn > total_mock_turns:
         state.demo_complete = True
 
-    # ── Build response payload ───────────────────────────────────────
-    return {
+    # ── Step 4: Send text response NOW (don't wait for TTS) ────────
+    response_payload = {
         "type": "turn_response",
         "turn": turn.model_dump(),
-        "tts": tts_result,
+        "tts": None,
         "session": {
             "turn": state.turn,
             "level": state.level,
             "demo_complete": state.demo_complete,
         },
     }
+    await websocket.send_json(response_payload)
+
+    # ── Step 5: TTS + Backboard in background ──────────────────────
+    async def _background_tasks():
+        # TTS — send audio as follow-up message
+        try:
+            tts_result = await _tts_service.synthesize(
+                tutor_response.spoken_response
+            )
+            await websocket.send_json({"type": "tts", "tts": tts_result})
+        except Exception as exc:
+            logger.error("TTS failed (non-fatal): %s", exc)
+
+        # Backboard — persist memory
+        try:
+            await _backboard_service.update_mastery(tutor_response.mastery_scores)
+            await _backboard_service.update_profile(
+                level=tutor_response.user_level_assessment,
+                turn=state.turn - 1,
+                border_update=tutor_response.border_update,
+            )
+        except Exception as exc:
+            logger.error("Backboard update failed (non-fatal): %s", exc)
+
+    asyncio.create_task(_background_tasks())
+
+    # Return None — response already sent via websocket above
+    return None

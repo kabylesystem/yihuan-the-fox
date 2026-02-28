@@ -10,6 +10,11 @@
 import { NebulaState, Category } from '../types';
 import * as backend from './backendService';
 
+// Register TTS callback to play audio that arrives after the text response
+backend.onTTS((tts) => {
+  if (tts) playTTS(tts);
+});
+
 // ── TTS Audio Playback ──────────────────────────────────────────────────
 
 function playTTS(tts: { mode: string; audio_base64?: string; text?: string; content_type?: string }) {
@@ -232,6 +237,9 @@ export async function analyzeInput(
   isFlying: boolean = false,
   inputType: 'text' | 'audio' = 'text'
 ): Promise<NebulaState> {
+  // Display-friendly text for audio inputs (don't show raw base64)
+  const displayText = inputType === 'audio' ? '🎤 [Voice message]' : input;
+
   // Try backend first
   if (_useBackend && backend.getConnectionStatus() === 'connected') {
     try {
@@ -241,7 +249,9 @@ export async function analyzeInput(
         const updatedMessages = backend.mapTurnToMessages(response.turn, currentState.messages);
         const { neurons, synapses } = await backend.fetchGraphData();
 
-        // Play TTS audio if available
+        // Play TTS if included in the response (legacy).
+        // With the new pipeline, TTS arrives as a separate 'tts' message
+        // and is handled by the onTTS callback registered above.
         if (response.tts) {
           playTTS(response.tts);
         }
@@ -273,7 +283,7 @@ export async function analyzeInput(
             {
               id: `user-${Date.now()}`,
               role: 'user' as const,
-              text: input,
+              text: displayText,
               timestamp: Date.now(),
             },
             {
@@ -295,7 +305,7 @@ export async function analyzeInput(
           {
             id: `user-${Date.now()}`,
             role: 'user' as const,
-            text: input,
+            text: displayText,
             timestamp: Date.now(),
           },
           {
