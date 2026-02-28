@@ -1086,6 +1086,13 @@
   flex: 1;
   min-height: 0;
   position: relative;
+  background-image: radial-gradient(
+    circle,
+    rgba(100, 160, 255, 0.08) 1px,
+    transparent 1px
+  );
+  background-size: 24px 24px;
+  background-position: 0 0;
 }
 
 .knowledge-graph__svg {
