@@ -213,6 +213,43 @@
   }
 }
 
+/* Node-scale-in: new nodes scale from 0 to 1 with white flash */
+@keyframes node-scale-in {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 1;
+    filter: brightness(3) drop-shadow(0 0 12px rgba(255, 255, 255, 0.9));
+  }
+  70% {
+    filter: brightness(2) drop-shadow(0 0 8px rgba(255, 255, 255, 0.6));
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+    filter: brightness(1);
+  }
+}
+
+/* Node-reactivation-pulse: reactivated nodes pulse 3 times brightly */
+@keyframes node-reactivation-pulse {
+  0%, 100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  8%, 24%, 40% {
+    transform: scale(1.3);
+    filter: brightness(2.5) drop-shadow(0 0 16px rgba(255, 170, 68, 0.9));
+  }
+  16%, 32%, 48% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
 .app__reset-button {
   background: var(--overlay-primary);
   border: 1px solid var(--border-accent-strong);

@@ -97,6 +97,7 @@ export default function KnowledgeGraph({ nodes, links }) {
   const particlesRef = useRef([]);
   const animationFrameRef = useRef(null);
   const zoomTransformRef = useRef(null);
+  const prevNodeIdsRef = useRef(new Set());
 
   /**
    * Get the radius for a given node type.
@@ -399,6 +400,29 @@ export default function KnowledgeGraph({ nodes, links }) {
       }
     });
 
+    // ── Detect new and reactivated nodes ─────────────────────────────
+    const currentNodeIds = new Set(simNodes.map(n => n.id));
+    const newNodeIds = new Set();
+    const reactivatedNodeIds = new Set();
+
+    // Identify new nodes (not in previous render)
+    simNodes.forEach((n) => {
+      if (!prevNodeIdsRef.current.has(n.id)) {
+        newNodeIds.add(n.id);
+      }
+    });
+
+    // Identify reactivated nodes (nodes with incoming reactivation links)
+    simLinks.forEach((link) => {
+      if (link.relationship === 'reactivation') {
+        const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+        reactivatedNodeIds.add(targetId);
+      }
+    });
+
+    // Update previous node IDs for next render
+    prevNodeIdsRef.current = currentNodeIds;
+
     // ── Render nodes ─────────────────────────────────────────────────
     const nodeGroup = g.append('g').attr('class', 'knowledge-graph__nodes');
 
@@ -412,7 +436,15 @@ export default function KnowledgeGraph({ nodes, links }) {
       .attr('class', 'knowledge-graph__node-glow')
       .attr('r', (d) => getRadius(d.type) + glowRadius(d.mastery))
       .attr('fill', (d) => masteryColorScale(d.mastery))
-      .attr('opacity', (d) => 0.15 + d.mastery * 0.15);
+      .attr('opacity', (d) => 0.15 + d.mastery * 0.15)
+      .style('animation', (d) => {
+        if (newNodeIds.has(d.id)) {
+          return 'node-scale-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards';
+        } else if (reactivatedNodeIds.has(d.id)) {
+          return 'node-reactivation-pulse 1.5s ease-out forwards';
+        }
+        return 'none';
+      });
 
     // Main node circle
     node.append('circle')
@@ -426,7 +458,17 @@ export default function KnowledgeGraph({ nodes, links }) {
         const blur = glowRadius(d.mastery);
         return `drop-shadow(0 0 ${blur}px ${glowColor}) drop-shadow(0 0 ${blur * 1.5}px ${glowColor})`;
       })
-      .style('cursor', 'grab');
+      .style('cursor', 'grab')
+      .style('animation', (d) => {
+        if (newNodeIds.has(d.id)) {
+          // New node: scale-in with white flash (0.6s)
+          return 'node-scale-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards';
+        } else if (reactivatedNodeIds.has(d.id)) {
+          // Reactivated node: 3x bright pulse (1.5s)
+          return 'node-reactivation-pulse 1.5s ease-out forwards';
+        }
+        return 'none';
+      });
 
     // Node label text
     node.append('text')
@@ -436,7 +478,13 @@ export default function KnowledgeGraph({ nodes, links }) {
       .attr('fill', '#c0c8e0')
       .attr('font-size', '11px')
       .attr('font-weight', 500)
-      .text((d) => d.label);
+      .text((d) => d.label)
+      .style('animation', (d) => {
+        if (newNodeIds.has(d.id)) {
+          return 'node-scale-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards';
+        }
+        return 'none';
+      });
 
     // ── Node interactions: hover + drag ──────────────────────────────
 
