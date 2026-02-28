@@ -225,9 +225,9 @@ class BackboardService:
                     "ability borders as they advance through conversation turns."
                 ),
             )
-            self._assistant_id = assistant.id
+            self._assistant_id = assistant.assistant_id
 
         thread = await self._client.create_thread(
             assistant_id=self._assistant_id,
         )
-        self._thread_id = thread.id
+        self._thread_id = thread.thread_id
