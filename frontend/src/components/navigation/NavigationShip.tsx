@@ -20,6 +20,15 @@ export function NavigationShip(props: {
   const groupRef = useRef<THREE.Group>(null);
   const thrusterRef = useRef<THREE.Mesh>(null);
 
+  // Three's Object3D.lookAt points the object's -Z axis at the target.
+  // This ship model is authored with its nose pointing +Z, so we flip it.
+  const modelFacingFix = useMemo(() => {
+    return new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
+  }, []);
+
+  // Keep the ship small and readable.
+  const baseScale = 0.65;
+
   const materials = useMemo(() => {
     const hull = new THREE.MeshStandardMaterial({
       color: COLORS.hull,
@@ -68,8 +77,8 @@ export function NavigationShip(props: {
 
     if (groupRef.current) {
       groupRef.current.position.copy(props.position);
-      groupRef.current.quaternion.copy(props.quaternion);
-      groupRef.current.scale.setScalar(props.scale);
+      groupRef.current.quaternion.copy(props.quaternion).multiply(modelFacingFix);
+      groupRef.current.scale.setScalar(props.scale * baseScale);
     }
 
     if (thrusterRef.current) {
