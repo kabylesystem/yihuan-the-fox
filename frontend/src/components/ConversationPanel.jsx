@@ -254,10 +254,13 @@ export default function ConversationPanel({
 }) {
   const scrollRef = useRef(null);
 
-  // Auto-scroll to the bottom when conversation updates
+  // Auto-scroll to the bottom when conversation updates (smooth)
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
     }
   }, [conversationHistory, isProcessing]);
 
