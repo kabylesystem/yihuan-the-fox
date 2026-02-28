@@ -840,31 +840,73 @@
 /* Messages */
 .conversation-panel__message {
   display: flex;
+  gap: 10px;
 }
 
 .conversation-panel__message--user {
   justify-content: flex-end;
+  flex-direction: row-reverse;
 }
 
 .conversation-panel__message--tutor {
   justify-content: flex-start;
+  flex-direction: row;
+}
+
+/* Avatars */
+.conversation-panel__avatar {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 4px;
+}
+
+.conversation-panel__avatar--user {
+  color: var(--accent-primary);
+}
+
+.conversation-panel__avatar--tutor {
+  color: var(--accent-purple);
+}
+
+.conversation-panel__avatar-icon {
+  display: block;
+  filter: drop-shadow(0 0 4px currentColor);
 }
 
 /* Bubbles */
 .conversation-panel__bubble {
   max-width: 85%;
-  padding: 16px;
+  display: flex;
+  gap: 12px;
   border-radius: 16px;
   position: relative;
 }
 
 .conversation-panel__bubble--user {
+  flex-direction: row-reverse;
+}
+
+.conversation-panel__bubble--tutor {
+  flex-direction: row;
+}
+
+.conversation-panel__content {
+  flex: 1;
+  padding: 16px;
+  border-radius: 16px;
+}
+
+.conversation-panel__bubble--user .conversation-panel__content {
   background: var(--gradient-bubble-user);
   border: 1px solid var(--border-accent);
   border-bottom-right-radius: 4px;
 }
 
-.conversation-panel__bubble--tutor {
+.conversation-panel__bubble--tutor .conversation-panel__content {
   background: var(--gradient-bubble-tutor);
   border: 1px solid var(--border-purple);
   border-bottom-left-radius: 4px;
@@ -1059,6 +1101,10 @@
 
 /* Typing indicator */
 .conversation-panel__bubble--typing {
+  padding: 0;
+}
+
+.conversation-panel__bubble--typing .conversation-panel__content {
   display: flex;
   align-items: center;
   gap: 5px;
