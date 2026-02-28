@@ -518,15 +518,15 @@
 }
 
 .voice-recorder__button {
-  width: 72px;
-  height: 72px;
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 2px;
-  background: var(--gradient-button-blue);
+  background: radial-gradient(circle at 30% 30%, rgba(106, 159, 255, 0.4), rgba(106, 159, 255, 0.15) 50%, rgba(26, 30, 46, 0.8));
   border: 2px solid var(--border-accent-hover);
   color: var(--accent-primary);
   cursor: pointer;
@@ -568,6 +568,9 @@
 .voice-recorder__icon {
   font-size: 24px;
   line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .voice-recorder__label {
