@@ -196,65 +196,74 @@ export default function VoiceRecorder({
 
   return (
     <div className="voice-recorder">
-      <button
-        className={buttonClass}
-        onClick={handleClick}
-        disabled={isDisabled}
-        aria-label={isRecording ? 'Stop recording' : 'Start recording'}
-      >
-        <span className="voice-recorder__icon">
-          {isRecording ? (
-            <svg
-              width="32"
-              height="32"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <rect
-                x="6"
-                y="6"
-                width="12"
-                height="12"
-                rx="2"
-                fill="currentColor"
-              />
-            </svg>
-          ) : (
-            <svg
-              width="32"
-              height="32"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M12 15C13.6569 15 15 13.6569 15 12V6C15 4.34315 13.6569 3 12 3C10.3431 3 9 4.34315 9 6V12C9 13.6569 10.3431 15 12 15Z"
-                fill="currentColor"
-              />
-              <path
-                d="M19 11V12C19 15.866 15.866 19 12 19C8.13401 19 5 15.866 5 12V11"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-              <path
-                d="M12 19V22"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-              <path
-                d="M9 22H15"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
-          )}
-        </span>
-        <span className="voice-recorder__label">{buttonLabel}</span>
-      </button>
+      <div className="voice-recorder__button-wrapper">
+        <button
+          className={buttonClass}
+          onClick={handleClick}
+          disabled={isDisabled}
+          aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+        >
+          <span className="voice-recorder__icon">
+            {isRecording ? (
+              <svg
+                width="32"
+                height="32"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <rect
+                  x="6"
+                  y="6"
+                  width="12"
+                  height="12"
+                  rx="2"
+                  fill="currentColor"
+                />
+              </svg>
+            ) : (
+              <svg
+                width="32"
+                height="32"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M12 15C13.6569 15 15 13.6569 15 12V6C15 4.34315 13.6569 3 12 3C10.3431 3 9 4.34315 9 6V12C9 13.6569 10.3431 15 12 15Z"
+                  fill="currentColor"
+                />
+                <path
+                  d="M19 11V12C19 15.866 15.866 19 12 19C8.13401 19 5 15.866 5 12V11"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M12 19V22"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M9 22H15"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            )}
+          </span>
+          <span className="voice-recorder__label">{buttonLabel}</span>
+        </button>
+        {isRecording && (
+          <>
+            <span className="voice-recorder__ripple voice-recorder__ripple--1" />
+            <span className="voice-recorder__ripple voice-recorder__ripple--2" />
+            <span className="voice-recorder__ripple voice-recorder__ripple--3" />
+          </>
+        )}
+      </div>
       {isRecording && (
         <div className="voice-recorder__indicator">
           <span className="voice-recorder__pulse" />
