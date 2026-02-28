@@ -58,12 +58,28 @@ export default function VoiceRecorder({
   onTranscriptUpdate,
 }) {
   const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
 
   const isConnected = connectionStatus === 'connected';
   const isDisabled = isProcessing || demoComplete || !isConnected;
+
+  // Timer effect: count up while recording
+  useEffect(() => {
+    let intervalId;
+    if (isRecording) {
+      intervalId = setInterval(() => {
+        setRecordingTime((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setRecordingTime(0);
+    }
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [isRecording]);
 
   // Cleanup: stop recording and release microphone on unmount
   useEffect(() => {
@@ -175,6 +191,18 @@ export default function VoiceRecorder({
     }
   }, [isDisabled, isRecording, stopRecording, startRecording]);
 
+  /**
+   * Format recording time in MM:SS format.
+   *
+   * @param {number} seconds - Total elapsed seconds.
+   * @returns {string} Formatted time string (MM:SS).
+   */
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
+
   // ── Determine button state and label ────────────────────────────────
 
   let buttonLabel = 'Speak';
@@ -268,6 +296,7 @@ export default function VoiceRecorder({
         <div className="voice-recorder__indicator">
           <span className="voice-recorder__pulse" />
           <span className="voice-recorder__indicator-text">Listening...</span>
+          <span className="voice-recorder__timer">{formatTime(recordingTime)}</span>
         </div>
       )}
     </div>

@@ -614,6 +614,15 @@
   font-weight: 500;
 }
 
+.voice-recorder__timer {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-red);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+  margin-left: 4px;
+}
+
 .voice-recorder__ripple {
   position: absolute;
   top: 50%;
