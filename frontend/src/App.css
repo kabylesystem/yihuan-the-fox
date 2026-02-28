@@ -1495,6 +1495,14 @@
   border-radius: 4px;
   transition: var(--transition-bar-full);
   box-shadow: var(--shadow-bar-glow);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.2) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
 }
 
 .learner-progress__overall-pct {
@@ -1595,6 +1603,14 @@
   height: 100%;
   border-radius: 3px;
   transition: var(--transition-mastery);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.2) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
 }
 
 /* Empty state */
