@@ -1692,3 +1692,84 @@
   color: var(--text-muted);
   margin: 0;
 }
+
+
+/* ==========================================================================
+   Responsive Design & Media Queries
+   ========================================================================== */
+
+/* ── Tablet breakpoint (1024px) ──────────────────────────────────────────── */
+
+@media (max-width: 1024px) {
+  /* Adjust header spacing */
+  .app__header {
+    padding: 0 20px;
+  }
+
+  .app__header-content {
+    padding: 10px 0;
+  }
+
+  /* Adjust session bar spacing */
+  .session-bar {
+    padding: 0 20px;
+  }
+
+  .session-bar__content {
+    padding: 10px 0;
+    gap: 20px;
+  }
+
+  /* Adjust main layout spacing */
+  .app__main {
+    padding: 14px;
+    gap: 14px;
+  }
+
+  /* Adjust panel spacing */
+  .app__voice-section {
+    padding: 18px;
+    gap: 10px;
+  }
+
+  /* Adjust conversation panel spacing */
+  .conversation-panel__header {
+    padding: 12px 18px;
+  }
+
+  .conversation-panel__messages {
+    padding: 14px;
+    gap: 14px;
+  }
+
+  /* Adjust knowledge graph spacing */
+  .knowledge-graph__header {
+    padding: 12px 18px;
+  }
+
+  .knowledge-graph__legend {
+    padding: 8px 18px;
+    gap: 20px;
+  }
+
+  /* Adjust learner progress spacing */
+  .learner-progress__header {
+    padding: 12px 18px;
+  }
+
+  .learner-progress__level-section {
+    padding: 14px 18px;
+    gap: 18px;
+  }
+
+  .learner-progress__border-section,
+  .learner-progress__mastery-section {
+    padding: 0 18px 14px;
+  }
+
+  /* Adjust mastery grid */
+  .learner-progress__mastery-grid {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 8px;
+  }
+}
