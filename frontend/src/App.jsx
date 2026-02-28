@@ -1,9 +1,9 @@
 /**
  * App — Root component for Neural-Sync Language Lab.
  *
- * Layout: Two-column split.
- *  - Left panel:  Voice controls, transcript display, conversation history
- *  - Right panel: Knowledge Graph visualization, learner progress dashboard
+ * Layout: Two-column split (60:40 ratio).
+ *  - Left panel (60%):  Knowledge Graph visualization, learner progress dashboard
+ *  - Right panel (40%): Voice controls, transcript display, conversation history
  *
  * Wires together all hooks and components:
  *  - useConversation: manages WebSocket, conversation state, TTS
@@ -144,8 +144,31 @@ function App() {
 
       {/* Main content — split layout */}
       <main className="app__main">
-        {/* Left panel: Conversation */}
+        {/* Left panel: Graph + Progress (60%) */}
         <div className="app__panel app__panel--left">
+          {/* Knowledge Graph */}
+          <div className="app__graph-section">
+            <KnowledgeGraph nodes={nodes} links={links} />
+            {graphError && (
+              <div className="app__graph-error">
+                Failed to load graph data
+              </div>
+            )}
+          </div>
+
+          {/* Learner Progress */}
+          <div className="app__progress-section">
+            <LearnerProgress
+              level={level}
+              masteryScores={masteryScores}
+              borderUpdate={borderUpdate}
+              currentTurn={currentTurn}
+            />
+          </div>
+        </div>
+
+        {/* Right panel: Conversation (40%) */}
+        <div className="app__panel app__panel--right">
           {/* Voice controls and transcript */}
           <div className="app__voice-section">
             <VoiceRecorder
@@ -168,29 +191,6 @@ function App() {
               isProcessing={isProcessing}
               error={error}
               demoComplete={demoComplete}
-            />
-          </div>
-        </div>
-
-        {/* Right panel: Graph + Progress */}
-        <div className="app__panel app__panel--right">
-          {/* Knowledge Graph */}
-          <div className="app__graph-section">
-            <KnowledgeGraph nodes={nodes} links={links} />
-            {graphError && (
-              <div className="app__graph-error">
-                Failed to load graph data
-              </div>
-            )}
-          </div>
-
-          {/* Learner Progress */}
-          <div className="app__progress-section">
-            <LearnerProgress
-              level={level}
-              masteryScores={masteryScores}
-              borderUpdate={borderUpdate}
-              currentTurn={currentTurn}
             />
           </div>
         </div>
