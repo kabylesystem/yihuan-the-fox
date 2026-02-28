@@ -49,6 +49,7 @@ function blobToBase64(blob) {
  * @param {boolean}  props.demoComplete     - Whether the mock demo is finished.
  * @param {string}   props.connectionStatus - Current WebSocket connection status.
  * @param {Function} [props.onTranscriptUpdate] - Optional callback for partial transcript updates.
+ * @param {Function} [props.onAudioLevel] - Optional callback for real-time audio levels.
  */
 export default function VoiceRecorder({
   sendMessage,
@@ -56,6 +57,7 @@ export default function VoiceRecorder({
   demoComplete,
   connectionStatus,
   onTranscriptUpdate,
+  onAudioLevel,
 }) {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -63,6 +65,9 @@ export default function VoiceRecorder({
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const animationFrameRef = useRef(null);
 
   const isConnected = connectionStatus === 'connected';
   const isDisabled = isProcessing || demoComplete || !isConnected;
@@ -92,6 +97,14 @@ export default function VoiceRecorder({
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
+      }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+        audioContextRef.current = null;
       }
     };
   }, []);
@@ -144,6 +157,50 @@ export default function VoiceRecorder({
       setIsRecording(true);
       setPermissionDenied(false); // Clear error on successful start
 
+      // ── Set up audio analysis for waveform visualization ──────────────
+      try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const analyser = audioContext.createAnalyser();
+        const source = audioContext.createMediaStreamSource(stream);
+
+        analyser.fftSize = 32; // Small FFT for 5 bars
+        analyser.smoothingTimeConstant = 0.8;
+        source.connect(analyser);
+
+        audioContextRef.current = audioContext;
+        analyserRef.current = analyser;
+
+        // Start audio level monitoring
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+        const updateAudioLevels = () => {
+          if (!analyserRef.current) return;
+
+          analyser.getByteFrequencyData(dataArray);
+
+          // Sample 5 points from the frequency data for 5 bars
+          const bars = 5;
+          const levels = [];
+          const step = Math.floor(dataArray.length / bars);
+
+          for (let i = 0; i < bars; i++) {
+            const index = Math.min(i * step, dataArray.length - 1);
+            // Normalize to 0-1 range
+            levels.push(dataArray[index] / 255);
+          }
+
+          if (onAudioLevel) {
+            onAudioLevel(levels);
+          }
+
+          animationFrameRef.current = requestAnimationFrame(updateAudioLevels);
+        };
+
+        updateAudioLevels();
+      } catch {
+        // Audio analysis failed, waveform will use fallback animation
+      }
+
       if (onTranscriptUpdate) {
         onTranscriptUpdate({ status: 'recording', text: '' });
       }
@@ -151,7 +208,7 @@ export default function VoiceRecorder({
       // Microphone access denied or unavailable
       setPermissionDenied(true);
     }
-  }, [sendMessage, onTranscriptUpdate]);
+  }, [sendMessage, onTranscriptUpdate, onAudioLevel]);
 
   /**
    * Stop the active recording.
@@ -162,6 +219,17 @@ export default function VoiceRecorder({
       mediaRecorderRef.current = null;
     }
     setIsRecording(false);
+
+    // Clean up audio analysis
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
 
     if (onTranscriptUpdate) {
       onTranscriptUpdate({ status: 'processing', text: '' });

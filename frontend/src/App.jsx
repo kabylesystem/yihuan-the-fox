@@ -52,12 +52,14 @@ function App() {
 
   // ── Transcript state for real-time STT display ────────────────────
   const [transcript, setTranscript] = useState({ status: 'idle', text: '' });
+  const [audioLevels, setAudioLevels] = useState(null);
   const prevIsProcessing = useRef(false);
 
   // Reset transcript to idle when processing completes (turn response received)
   useEffect(() => {
     if (prevIsProcessing.current && !isProcessing) {
       setTranscript({ status: 'idle', text: '' });
+      setAudioLevels(null);
     }
     prevIsProcessing.current = isProcessing;
   }, [isProcessing]);
@@ -67,6 +69,17 @@ function App() {
    */
   const handleTranscriptUpdate = useCallback((update) => {
     setTranscript(update);
+    // Clear audio levels when not actively recording
+    if (update.status !== 'recording') {
+      setAudioLevels(null);
+    }
+  }, []);
+
+  /**
+   * Handle real-time audio level updates from VoiceRecorder.
+   */
+  const handleAudioLevel = useCallback((levels) => {
+    setAudioLevels(levels);
   }, []);
 
   /**
@@ -177,10 +190,12 @@ function App() {
               demoComplete={demoComplete}
               connectionStatus={connectionStatus}
               onTranscriptUpdate={handleTranscriptUpdate}
+              onAudioLevel={handleAudioLevel}
             />
             <TranscriptDisplay
               transcript={transcript}
               isProcessing={isProcessing}
+              audioLevels={audioLevels}
             />
           </div>
 

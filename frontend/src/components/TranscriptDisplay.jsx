@@ -28,8 +28,9 @@
  *     { status: 'final',      text: 'Bonjour' }
  *     { status: 'processing', text: '' }
  * @param {boolean} props.isProcessing - Whether the backend is processing.
+ * @param {number[]} [props.audioLevels] - Optional array of 5 audio levels (0-1 range).
  */
-export default function TranscriptDisplay({ transcript, isProcessing }) {
+export default function TranscriptDisplay({ transcript, isProcessing, audioLevels }) {
   const { status = 'idle', text = '' } = transcript || {};
 
   // Nothing to show when idle and not processing
@@ -86,11 +87,29 @@ export default function TranscriptDisplay({ transcript, isProcessing }) {
       )}
       {(status === 'recording' || status === 'partial') && (
         <div className="transcript-display__wave">
-          <span className="transcript-display__wave-bar" />
-          <span className="transcript-display__wave-bar" />
-          <span className="transcript-display__wave-bar" />
-          <span className="transcript-display__wave-bar" />
-          <span className="transcript-display__wave-bar" />
+          {audioLevels && audioLevels.length === 5 ? (
+            // Real-time audio levels from microphone
+            audioLevels.map((level, index) => {
+              // Map level (0-1) to height percentage (20%-100%)
+              const height = Math.max(20, Math.min(100, 20 + level * 80));
+              return (
+                <span
+                  key={index}
+                  className="transcript-display__wave-bar"
+                  style={{ height: `${height}%` }}
+                />
+              );
+            })
+          ) : (
+            // Fallback to CSS animation when no audio levels available
+            <>
+              <span className="transcript-display__wave-bar" />
+              <span className="transcript-display__wave-bar" />
+              <span className="transcript-display__wave-bar" />
+              <span className="transcript-display__wave-bar" />
+              <span className="transcript-display__wave-bar" />
+            </>
+          )}
         </div>
       )}
     </div>
