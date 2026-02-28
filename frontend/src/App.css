@@ -235,6 +235,154 @@
   cursor: not-allowed;
 }
 
+/* ── SessionBar ──────────────────────────────────────────────────────────── */
+
+.session-bar {
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-medium);
+  padding: 0 24px;
+  flex-shrink: 0;
+}
+
+.session-bar__content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 12px 0;
+  gap: 24px;
+}
+
+.session-bar__section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+
+.session-bar__section--language {
+  flex: 0 0 auto;
+}
+
+.session-bar__section--turns {
+  flex: 0 0 auto;
+}
+
+.session-bar__section--timer {
+  flex: 0 0 auto;
+}
+
+.session-bar__section--status {
+  flex: 0 0 auto;
+}
+
+.session-bar__section--actions {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.session-bar__label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-label);
+}
+
+.session-bar__value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.session-bar__language-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 20px;
+}
+
+.session-bar__flag {
+  line-height: 1;
+}
+
+.session-bar__arrow {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.session-bar__timer {
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  color: var(--accent-primary);
+}
+
+.session-bar__status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.session-bar__status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transition: var(--transition-all-fast);
+}
+
+.session-bar__status-dot--connected {
+  background: var(--accent-green);
+  box-shadow: var(--shadow-glow-green-sm);
+}
+
+.session-bar__status-dot--disconnected {
+  background: var(--accent-red);
+  box-shadow: var(--shadow-glow-red-sm);
+}
+
+.session-bar__status-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.session-bar__reset-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--overlay-primary-light);
+  border: 1px solid var(--border-medium);
+  color: var(--text-primary);
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition-all-fast);
+}
+
+.session-bar__reset-button:hover:not(:disabled) {
+  background: var(--overlay-primary-hover);
+  border-color: var(--border-accent-focus);
+  transform: translateY(-1px);
+}
+
+.session-bar__reset-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.session-bar__reset-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.session-bar__reset-icon {
+  font-size: 16px;
+  font-weight: 600;
+}
+
 /* ── Main split layout ───────────────────────────────────────────────────── */
 
 .app__main {

@@ -25,6 +25,7 @@ import TranscriptDisplay from './components/TranscriptDisplay';
 import ConversationPanel from './components/ConversationPanel';
 import KnowledgeGraph from './components/KnowledgeGraph';
 import LearnerProgress from './components/LearnerProgress';
+import SessionBar from './components/SessionBar';
 import './App.css';
 
 function App() {
@@ -131,6 +132,15 @@ function App() {
           </div>
         </div>
       </header>
+
+      {/* SessionBar */}
+      <SessionBar
+        connectionStatus={connectionStatus}
+        currentTurn={currentTurn}
+        onReset={handleReset}
+        isProcessing={isProcessing}
+        hasConversation={conversationHistory.length > 0}
+      />
 
       {/* Main content — split layout */}
       <main className="app__main">
