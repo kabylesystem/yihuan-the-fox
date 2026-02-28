@@ -1,9 +1,9 @@
 /**
  * App — Root component for Neural-Sync Language Lab.
  *
- * Layout: Two-column split.
- *  - Left panel:  Voice controls, transcript display, conversation history
- *  - Right panel: Knowledge Graph visualization, learner progress dashboard
+ * Layout: Two-column split (60:40 ratio).
+ *  - Left panel (60%):  Knowledge Graph visualization, learner progress dashboard
+ *  - Right panel (40%): Voice controls, transcript display, conversation history
  *
  * Wires together all hooks and components:
  *  - useConversation: manages WebSocket, conversation state, TTS
@@ -25,6 +25,7 @@ import TranscriptDisplay from './components/TranscriptDisplay';
 import ConversationPanel from './components/ConversationPanel';
 import KnowledgeGraph from './components/KnowledgeGraph';
 import LearnerProgress from './components/LearnerProgress';
+import SessionBar from './components/SessionBar';
 import './App.css';
 
 function App() {
@@ -51,12 +52,14 @@ function App() {
 
   // ── Transcript state for real-time STT display ────────────────────
   const [transcript, setTranscript] = useState({ status: 'idle', text: '' });
+  const [audioLevels, setAudioLevels] = useState(null);
   const prevIsProcessing = useRef(false);
 
   // Reset transcript to idle when processing completes (turn response received)
   useEffect(() => {
     if (prevIsProcessing.current && !isProcessing) {
       setTranscript({ status: 'idle', text: '' });
+      setAudioLevels(null);
     }
     prevIsProcessing.current = isProcessing;
   }, [isProcessing]);
@@ -66,6 +69,17 @@ function App() {
    */
   const handleTranscriptUpdate = useCallback((update) => {
     setTranscript(update);
+    // Clear audio levels when not actively recording
+    if (update.status !== 'recording') {
+      setAudioLevels(null);
+    }
+  }, []);
+
+  /**
+   * Handle real-time audio level updates from VoiceRecorder.
+   */
+  const handleAudioLevel = useCallback((levels) => {
+    setAudioLevels(levels);
   }, []);
 
   /**
@@ -132,38 +146,19 @@ function App() {
         </div>
       </header>
 
+      {/* SessionBar */}
+      <SessionBar
+        connectionStatus={connectionStatus}
+        currentTurn={currentTurn}
+        onReset={handleReset}
+        isProcessing={isProcessing}
+        hasConversation={conversationHistory.length > 0}
+      />
+
       {/* Main content — split layout */}
       <main className="app__main">
-        {/* Left panel: Conversation */}
+        {/* Left panel: Graph + Progress (60%) */}
         <div className="app__panel app__panel--left">
-          {/* Voice controls and transcript */}
-          <div className="app__voice-section">
-            <VoiceRecorder
-              sendMessage={sendMessage}
-              isProcessing={isProcessing}
-              demoComplete={demoComplete}
-              connectionStatus={connectionStatus}
-              onTranscriptUpdate={handleTranscriptUpdate}
-            />
-            <TranscriptDisplay
-              transcript={transcript}
-              isProcessing={isProcessing}
-            />
-          </div>
-
-          {/* Conversation history */}
-          <div className="app__conversation-section">
-            <ConversationPanel
-              conversationHistory={conversationHistory}
-              isProcessing={isProcessing}
-              error={error}
-              demoComplete={demoComplete}
-            />
-          </div>
-        </div>
-
-        {/* Right panel: Graph + Progress */}
-        <div className="app__panel app__panel--right">
           {/* Knowledge Graph */}
           <div className="app__graph-section">
             <KnowledgeGraph nodes={nodes} links={links} />
@@ -181,6 +176,36 @@ function App() {
               masteryScores={masteryScores}
               borderUpdate={borderUpdate}
               currentTurn={currentTurn}
+            />
+          </div>
+        </div>
+
+        {/* Right panel: Conversation (40%) */}
+        <div className="app__panel app__panel--right">
+          {/* Voice controls and transcript */}
+          <div className="app__voice-section">
+            <VoiceRecorder
+              sendMessage={sendMessage}
+              isProcessing={isProcessing}
+              demoComplete={demoComplete}
+              connectionStatus={connectionStatus}
+              onTranscriptUpdate={handleTranscriptUpdate}
+              onAudioLevel={handleAudioLevel}
+            />
+            <TranscriptDisplay
+              transcript={transcript}
+              isProcessing={isProcessing}
+              audioLevels={audioLevels}
+            />
+          </div>
+
+          {/* Conversation history */}
+          <div className="app__conversation-section">
+            <ConversationPanel
+              conversationHistory={conversationHistory}
+              isProcessing={isProcessing}
+              error={error}
+              demoComplete={demoComplete}
             />
           </div>
         </div>

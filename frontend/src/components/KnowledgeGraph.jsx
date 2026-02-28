@@ -14,6 +14,8 @@
  * Interactions:
  *  - Drag nodes to rearrange the graph
  *  - Hover for tooltip with label, mastery, type, and CEFR level
+ *  - Scroll wheel to zoom (0.5x to 4x scale)
+ *  - Drag background to pan the graph
  *  - Graph auto-centers and re-simulates when data changes
  *
  * Props:
@@ -51,6 +53,14 @@ const EDGE_COLOR = {
   conjugation: '#bb77ff',
 };
 
+/** Connection strength by relationship type (affects edge thickness). */
+const EDGE_STRENGTH = {
+  prerequisite: 3,    // Strong foundational connection
+  semantic: 2,        // Moderate semantic relationship
+  reactivation: 1.5,  // Weaker reactivation link
+  conjugation: 2.5,   // Strong grammatical relationship
+};
+
 /**
  * Mastery color scale: red (weak, 0) → yellow (moderate, 0.5) → green (strong, 1.0).
  * Called once; reused across renders.
@@ -67,6 +77,102 @@ function glowRadius(mastery) {
   return 4 + mastery * 8;
 }
 
+/**
+ * Get glow halo color based on mastery thresholds.
+ * Green for mastery > 0.7, Yellow for mastery > 0.4, Red for mastery < 0.4.
+ */
+function getGlowColor(mastery) {
+  if (mastery > 0.7) return '#44ff44';  // Green
+  if (mastery > 0.4) return '#ffaa00';  // Yellow
+  return '#ff4444';                      // Red
+}
+
+/**
+ * Generate a curved path for an edge using quadratic bezier curve.
+ * The control point is offset perpendicular to the line connecting source and target.
+ *
+ * @param {Object} d - Link data with source and target coordinates
+ * @returns {string} SVG path string
+ */
+function getCurvedPath(d) {
+  const sourceX = d.source.x || 0;
+  const sourceY = d.source.y || 0;
+  const targetX = d.target.x || 0;
+  const targetY = d.target.y || 0;
+
+  // Calculate midpoint
+  const midX = (sourceX + targetX) / 2;
+  const midY = (sourceY + targetY) / 2;
+
+  // Calculate perpendicular offset for control point
+  const dx = targetX - sourceX;
+  const dy = targetY - sourceY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  // Offset amount (20% of distance, creates nice curve)
+  const offset = distance * 0.2;
+
+  // Perpendicular vector (normalized)
+  const perpX = -dy / distance;
+  const perpY = dx / distance;
+
+  // Control point offset perpendicular to the line
+  const controlX = midX + perpX * offset;
+  const controlY = midY + perpY * offset;
+
+  // Quadratic bezier curve: M (move to start), Q (quadratic curve to end with control point)
+  return `M ${sourceX},${sourceY} Q ${controlX},${controlY} ${targetX},${targetY}`;
+}
+
+/**
+ * Calculate a point along a quadratic bezier curve.
+ * Used for particle animation along curved edges.
+ *
+ * @param {number} t - Progress along curve (0 to 1)
+ * @param {number} sx - Source x
+ * @param {number} sy - Source y
+ * @param {number} cx - Control point x
+ * @param {number} cy - Control point y
+ * @param {number} tx - Target x
+ * @param {number} ty - Target y
+ * @returns {Object} Point {x, y} along the curve
+ */
+function getPointOnQuadraticCurve(t, sx, sy, cx, cy, tx, ty) {
+  const t1 = 1 - t;
+  const x = t1 * t1 * sx + 2 * t1 * t * cx + t * t * tx;
+  const y = t1 * t1 * sy + 2 * t1 * t * cy + t * t * ty;
+  return { x, y };
+}
+
+/**
+ * Calculate control point for a quadratic bezier curve.
+ * Returns the same control point used in getCurvedPath.
+ *
+ * @param {number} sx - Source x
+ * @param {number} sy - Source y
+ * @param {number} tx - Target x
+ * @param {number} ty - Target y
+ * @returns {Object} Control point {x, y}
+ */
+function getControlPoint(sx, sy, tx, ty) {
+  const midX = (sx + tx) / 2;
+  const midY = (sy + ty) / 2;
+
+  const dx = tx - sx;
+  const dy = ty - sy;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  const offset = distance * 0.2;
+
+  const perpX = -dy / distance;
+  const perpY = dx / distance;
+
+  return {
+    x: midX + perpX * offset,
+    y: midY + perpY * offset,
+  };
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 /**
@@ -81,6 +187,11 @@ export default function KnowledgeGraph({ nodes, links }) {
   const containerRef = useRef(null);
   const simulationRef = useRef(null);
   const tooltipRef = useRef(null);
+  const canvasRef = useRef(null);
+  const particlesRef = useRef([]);
+  const animationFrameRef = useRef(null);
+  const zoomTransformRef = useRef(null);
+  const prevNodeIdsRef = useRef(new Set());
 
   /**
    * Get the radius for a given node type.
@@ -88,6 +199,149 @@ export default function KnowledgeGraph({ nodes, links }) {
   const getRadius = useCallback((type) => {
     return NODE_RADIUS[type] || NODE_RADIUS.vocab;
   }, []);
+
+  // ── Particle animation system ──────────────────────────────────────────
+  /**
+   * Particle class for edge animations.
+   * Each particle travels along an edge from source to target.
+   */
+  class Particle {
+    constructor(link, color, speed = 0.0005) {
+      this.link = link;
+      this.color = color;
+      this.speed = speed + Math.random() * 0.0003; // Slight variation
+      this.progress = Math.random(); // Random starting position
+      this.size = 2 + Math.random() * 2; // 2-4px radius
+      this.opacity = 0.6 + Math.random() * 0.4; // 0.6-1.0 opacity
+    }
+
+    update(deltaTime) {
+      this.progress += this.speed * deltaTime;
+      if (this.progress > 1) {
+        this.progress = 0;
+      }
+    }
+
+    getPosition() {
+      // Follow curved path using quadratic bezier curve
+      const sourceX = this.link.source.x || 0;
+      const sourceY = this.link.source.y || 0;
+      const targetX = this.link.target.x || 0;
+      const targetY = this.link.target.y || 0;
+
+      // Get control point for the curve
+      const control = getControlPoint(sourceX, sourceY, targetX, targetY);
+
+      // Calculate position along quadratic bezier curve
+      return getPointOnQuadraticCurve(
+        this.progress,
+        sourceX, sourceY,
+        control.x, control.y,
+        targetX, targetY
+      );
+    }
+
+    draw(ctx, transform) {
+      const pos = this.getPosition();
+
+      // Apply zoom/pan transform
+      const x = pos.x * transform.k + transform.x;
+      const y = pos.y * transform.k + transform.y;
+      const size = this.size * transform.k;
+
+      // Draw glowing particle
+      ctx.save();
+
+      // Outer glow
+      const gradient = ctx.createRadialGradient(x, y, 0, x, y, size * 3);
+      // Convert hex color to rgba for gradient (e.g., #6a9fff -> rgba(106, 159, 255, ...))
+      const r = parseInt(this.color.slice(1, 3), 16);
+      const g = parseInt(this.color.slice(3, 5), 16);
+      const b = parseInt(this.color.slice(5, 7), 16);
+      gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.8)`);
+      gradient.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, 0.3)`);
+      gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(x, y, size * 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Core particle
+      ctx.fillStyle = this.color;
+      ctx.globalAlpha = this.opacity;
+      ctx.beginPath();
+      ctx.arc(x, y, size, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
+  // ── Canvas sizing effect ────────────────────────────────────────────────
+  useEffect(() => {
+    if (!canvasRef.current || !containerRef.current) return;
+
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+
+    // Set canvas size to match container
+    const updateCanvasSize = () => {
+      const { width, height } = container.getBoundingClientRect();
+      if (width > 0 && height > 0) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+    };
+
+    updateCanvasSize();
+
+    // Optional: Listen for resize events
+    const resizeObserver = new ResizeObserver(updateCanvasSize);
+    resizeObserver.observe(container);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
+
+  // ── Particle animation loop ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!canvasRef.current || !containerRef.current) return;
+    if (!links || links.length === 0) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    let lastTime = performance.now();
+
+    function animate(currentTime) {
+      const deltaTime = currentTime - lastTime;
+      lastTime = currentTime;
+
+      // Clear canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Get current zoom transform
+      const transform = zoomTransformRef.current || { x: 0, y: 0, k: 1 };
+
+      // Update and draw particles
+      particlesRef.current.forEach((particle) => {
+        particle.update(deltaTime);
+        particle.draw(ctx, transform);
+      });
+
+      animationFrameRef.current = requestAnimationFrame(animate);
+    }
+
+    animationFrameRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+    };
+  }, [links]);
 
   // ── Main D3 render effect ───────────────────────────────────────────────
   useEffect(() => {
@@ -98,6 +352,11 @@ export default function KnowledgeGraph({ nodes, links }) {
     const container = containerRef.current;
     const { width, height } = container.getBoundingClientRect();
     if (width === 0 || height === 0) return;
+
+    // Initialize zoom transform if not set
+    if (!zoomTransformRef.current) {
+      zoomTransformRef.current = { x: 0, y: 0, k: 1 };
+    }
 
     // ── Clean up any existing simulation ──────────────────────────────
     if (simulationRef.current) {
@@ -127,18 +386,20 @@ export default function KnowledgeGraph({ nodes, links }) {
     feMerge.append('feMergeNode').attr('in', 'blur');
     feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
 
-    // Arrow marker for directed edges
-    defs.append('marker')
-      .attr('id', 'arrowhead')
-      .attr('viewBox', '0 0 10 10')
-      .attr('refX', 20)
-      .attr('refY', 5)
-      .attr('markerWidth', 6)
-      .attr('markerHeight', 6)
-      .attr('orient', 'auto')
-      .append('path')
-      .attr('d', 'M 0 0 L 10 5 L 0 10 z')
-      .attr('fill', '#555');
+    // Arrow markers for directed edges (one per relationship type with matching color)
+    Object.entries(EDGE_COLOR).forEach(([relationship, color]) => {
+      defs.append('marker')
+        .attr('id', `arrowhead-${relationship}`)
+        .attr('viewBox', '0 0 10 10')
+        .attr('refX', 20)
+        .attr('refY', 5)
+        .attr('markerWidth', 6)
+        .attr('markerHeight', 6)
+        .attr('orient', 'auto')
+        .append('path')
+        .attr('d', 'M 0 0 L 10 5 L 0 10 z')
+        .attr('fill', color);
+    });
 
     // ── Tooltip element ──────────────────────────────────────────────
     // Remove any stale tooltips
@@ -187,20 +448,37 @@ export default function KnowledgeGraph({ nodes, links }) {
 
     simulationRef.current = simulation;
 
-    // ── Main SVG group (for potential zoom later) ────────────────────
+    // ── Main SVG group (for zoom/pan) ────────────────────────────────
     const g = svg.append('g');
+
+    // ── Zoom and pan behavior ────────────────────────────────────────
+    const zoom = d3.zoom()
+      .scaleExtent([0.5, 4])  // Allow zoom from 0.5x to 4x
+      .filter((event) => {
+        // Allow zoom/pan on wheel or when not dragging a node
+        // This prevents zoom from interfering with node drag
+        return event.type === 'wheel' || !event.target.closest('.knowledge-graph__node');
+      })
+      .on('zoom', (event) => {
+        g.attr('transform', event.transform);
+        // Store transform for particle rendering
+        zoomTransformRef.current = event.transform;
+      });
+
+    svg.call(zoom);
 
     // ── Render edges ─────────────────────────────────────────────────
     const linkGroup = g.append('g').attr('class', 'knowledge-graph__links');
 
-    const link = linkGroup.selectAll('line')
+    const link = linkGroup.selectAll('path')
       .data(simLinks)
-      .join('line')
+      .join('path')
       .attr('stroke', (d) => EDGE_COLOR[d.relationship] || '#555')
-      .attr('stroke-width', 1.5)
+      .attr('stroke-width', (d) => EDGE_STRENGTH[d.relationship] || 1.5)
       .attr('stroke-opacity', 0.6)
       .attr('stroke-dasharray', (d) => EDGE_DASH[d.relationship] || null)
-      .attr('marker-end', 'url(#arrowhead)');
+      .attr('fill', 'none')
+      .attr('marker-end', (d) => `url(#arrowhead-${d.relationship})`);
 
     // Edge relationship labels (positioned at midpoint)
     const linkLabel = linkGroup.selectAll('text')
@@ -213,6 +491,40 @@ export default function KnowledgeGraph({ nodes, links }) {
       .attr('opacity', 0.7)
       .attr('dy', -6)
       .text((d) => d.relationship);
+
+    // ── Create particles for each edge ───────────────────────────────
+    particlesRef.current = [];
+    simLinks.forEach((link) => {
+      const color = EDGE_COLOR[link.relationship] || '#6a9fff';
+      // Create 2-3 particles per edge
+      const particleCount = 2 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < particleCount; i++) {
+        particlesRef.current.push(new Particle(link, color));
+      }
+    });
+
+    // ── Detect new and reactivated nodes ─────────────────────────────
+    const currentNodeIds = new Set(simNodes.map(n => n.id));
+    const newNodeIds = new Set();
+    const reactivatedNodeIds = new Set();
+
+    // Identify new nodes (not in previous render)
+    simNodes.forEach((n) => {
+      if (!prevNodeIdsRef.current.has(n.id)) {
+        newNodeIds.add(n.id);
+      }
+    });
+
+    // Identify reactivated nodes (nodes with incoming reactivation links)
+    simLinks.forEach((link) => {
+      if (link.relationship === 'reactivation') {
+        const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+        reactivatedNodeIds.add(targetId);
+      }
+    });
+
+    // Update previous node IDs for next render
+    prevNodeIdsRef.current = currentNodeIds;
 
     // ── Render nodes ─────────────────────────────────────────────────
     const nodeGroup = g.append('g').attr('class', 'knowledge-graph__nodes');
@@ -227,7 +539,15 @@ export default function KnowledgeGraph({ nodes, links }) {
       .attr('class', 'knowledge-graph__node-glow')
       .attr('r', (d) => getRadius(d.type) + glowRadius(d.mastery))
       .attr('fill', (d) => masteryColorScale(d.mastery))
-      .attr('opacity', (d) => 0.15 + d.mastery * 0.15);
+      .attr('opacity', (d) => 0.15 + d.mastery * 0.15)
+      .style('animation', (d) => {
+        if (newNodeIds.has(d.id)) {
+          return 'node-scale-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards';
+        } else if (reactivatedNodeIds.has(d.id)) {
+          return 'node-reactivation-pulse 1.5s ease-out forwards';
+        }
+        return 'none';
+      });
 
     // Main node circle
     node.append('circle')
@@ -236,8 +556,22 @@ export default function KnowledgeGraph({ nodes, links }) {
       .attr('fill', (d) => masteryColorScale(d.mastery))
       .attr('stroke', '#1a1e2e')
       .attr('stroke-width', 2)
-      .style('filter', 'url(#node-glow)')
-      .style('cursor', 'grab');
+      .style('filter', (d) => {
+        const glowColor = getGlowColor(d.mastery);
+        const blur = glowRadius(d.mastery);
+        return `drop-shadow(0 0 ${blur}px ${glowColor}) drop-shadow(0 0 ${blur * 1.5}px ${glowColor})`;
+      })
+      .style('cursor', 'grab')
+      .style('animation', (d) => {
+        if (newNodeIds.has(d.id)) {
+          // New node: scale-in with white flash (0.6s)
+          return 'node-scale-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards';
+        } else if (reactivatedNodeIds.has(d.id)) {
+          // Reactivated node: 3x bright pulse (1.5s)
+          return 'node-reactivation-pulse 1.5s ease-out forwards';
+        }
+        return 'none';
+      });
 
     // Node label text
     node.append('text')
@@ -247,7 +581,13 @@ export default function KnowledgeGraph({ nodes, links }) {
       .attr('fill', '#c0c8e0')
       .attr('font-size', '11px')
       .attr('font-weight', 500)
-      .text((d) => d.label);
+      .text((d) => d.label)
+      .style('animation', (d) => {
+        if (newNodeIds.has(d.id)) {
+          return 'node-scale-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards';
+        }
+        return 'none';
+      });
 
     // ── Node interactions: hover + drag ──────────────────────────────
 
@@ -291,9 +631,11 @@ export default function KnowledgeGraph({ nodes, links }) {
           .attr('stroke-opacity', (l) =>
             (l.source.id === d.id || l.target.id === d.id) ? 1 : 0.15
           )
-          .attr('stroke-width', (l) =>
-            (l.source.id === d.id || l.target.id === d.id) ? 2.5 : 1.5
-          );
+          .attr('stroke-width', (l) => {
+            const isConnected = (l.source.id === d.id || l.target.id === d.id);
+            const baseWidth = EDGE_STRENGTH[l.relationship] || 1.5;
+            return isConnected ? baseWidth * 1.5 : baseWidth;
+          });
       })
       .on('mousemove', (event) => {
         const rect = container.getBoundingClientRect();
@@ -315,7 +657,7 @@ export default function KnowledgeGraph({ nodes, links }) {
         // Reset edge highlight
         link
           .attr('stroke-opacity', 0.6)
-          .attr('stroke-width', 1.5);
+          .attr('stroke-width', (l) => EDGE_STRENGTH[l.relationship] || 1.5);
       });
 
     // Drag behavior
@@ -352,15 +694,31 @@ export default function KnowledgeGraph({ nodes, links }) {
         d.y = Math.max(r, Math.min(height - r, d.y));
       });
 
-      link
-        .attr('x1', (d) => d.source.x)
-        .attr('y1', (d) => d.source.y)
-        .attr('x2', (d) => d.target.x)
-        .attr('y2', (d) => d.target.y);
+      // Update curved path edges
+      link.attr('d', getCurvedPath);
 
+      // Position labels at the midpoint of the curve
       linkLabel
-        .attr('x', (d) => (d.source.x + d.target.x) / 2)
-        .attr('y', (d) => (d.source.y + d.target.y) / 2);
+        .attr('x', (d) => {
+          const sx = d.source.x || 0;
+          const tx = d.target.x || 0;
+          const sy = d.source.y || 0;
+          const ty = d.target.y || 0;
+          const control = getControlPoint(sx, sy, tx, ty);
+          // Position at t=0.5 on the curve
+          const point = getPointOnQuadraticCurve(0.5, sx, sy, control.x, control.y, tx, ty);
+          return point.x;
+        })
+        .attr('y', (d) => {
+          const sx = d.source.x || 0;
+          const tx = d.target.x || 0;
+          const sy = d.source.y || 0;
+          const ty = d.target.y || 0;
+          const control = getControlPoint(sx, sy, tx, ty);
+          // Position at t=0.5 on the curve
+          const point = getPointOnQuadraticCurve(0.5, sx, sy, control.x, control.y, tx, ty);
+          return point.y;
+        });
 
       node.attr('transform', (d) => `translate(${d.x},${d.y})`);
     });
@@ -391,13 +749,27 @@ export default function KnowledgeGraph({ nodes, links }) {
         )}
       </div>
 
-      <div className="knowledge-graph__canvas">
+      <div className="knowledge-graph__canvas" style={{ position: 'relative' }}>
         {hasData ? (
-          <svg
-            ref={svgRef}
-            className="knowledge-graph__svg"
-            style={{ width: '100%', height: '100%' }}
-          />
+          <>
+            <svg
+              ref={svgRef}
+              className="knowledge-graph__svg"
+              style={{ width: '100%', height: '100%' }}
+            />
+            <canvas
+              ref={canvasRef}
+              className="knowledge-graph__particle-canvas"
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                pointerEvents: 'none',
+              }}
+            />
+          </>
         ) : (
           <div className="knowledge-graph__empty">
             <div className="knowledge-graph__empty-icon">🧠</div>

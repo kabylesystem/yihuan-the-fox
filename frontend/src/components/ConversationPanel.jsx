@@ -24,6 +24,55 @@
 import { useEffect, useRef, useState } from 'react';
 
 /**
+ * User avatar icon (SVG).
+ */
+function UserIcon() {
+  return (
+    <svg
+      className="conversation-panel__avatar-icon"
+      width="32"
+      height="32"
+      viewBox="0 0 32 32"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <circle cx="16" cy="10" r="5" fill="currentColor" opacity="0.9" />
+      <path
+        d="M8 26C8 21.5817 11.5817 18 16 18C20.4183 18 24 21.5817 24 26"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        opacity="0.9"
+      />
+    </svg>
+  );
+}
+
+/**
+ * Robot avatar icon (SVG).
+ */
+function RobotIcon() {
+  return (
+    <svg
+      className="conversation-panel__avatar-icon"
+      width="32"
+      height="32"
+      viewBox="0 0 32 32"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <rect x="8" y="10" width="16" height="14" rx="3" fill="currentColor" opacity="0.2" />
+      <rect x="8" y="10" width="16" height="14" rx="3" stroke="currentColor" strokeWidth="2" opacity="0.9" />
+      <circle cx="13" cy="16" r="1.5" fill="currentColor" />
+      <circle cx="19" cy="16" r="1.5" fill="currentColor" />
+      <line x1="11" y1="20" x2="21" y2="20" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <rect x="14.5" y="6" width="3" height="4" rx="1" fill="currentColor" opacity="0.9" />
+      <circle cx="16" cy="6" r="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+/**
  * A single user message bubble.
  *
  * @param {Object} props
@@ -34,8 +83,13 @@ function UserMessage({ text, turnNumber }) {
   return (
     <div className="conversation-panel__message conversation-panel__message--user">
       <div className="conversation-panel__bubble conversation-panel__bubble--user">
-        <span className="conversation-panel__turn-badge">Turn {turnNumber}</span>
-        <p className="conversation-panel__text">{text}</p>
+        <div className="conversation-panel__avatar conversation-panel__avatar--user">
+          <UserIcon />
+        </div>
+        <div className="conversation-panel__content">
+          <span className="conversation-panel__turn-badge">Turn {turnNumber}</span>
+          <p className="conversation-panel__text">{text}</p>
+        </div>
       </div>
     </div>
   );
@@ -63,8 +117,12 @@ function TutorMessage({ response }) {
   return (
     <div className="conversation-panel__message conversation-panel__message--tutor">
       <div className="conversation-panel__bubble conversation-panel__bubble--tutor">
-        {/* Main spoken response */}
-        <p className="conversation-panel__spoken">{spoken_response}</p>
+        <div className="conversation-panel__avatar conversation-panel__avatar--tutor">
+          <RobotIcon />
+        </div>
+        <div className="conversation-panel__content">
+          {/* Main spoken response */}
+          <p className="conversation-panel__spoken">{spoken_response}</p>
 
         {/* Translation hint */}
         {translation_hint && (
@@ -90,15 +148,37 @@ function TutorMessage({ response }) {
             {vocabulary_breakdown && vocabulary_breakdown.length > 0 && (
               <div className="conversation-panel__section">
                 <h4 className="conversation-panel__section-title">Vocabulary</h4>
-                <ul className="conversation-panel__vocab-list">
-                  {vocabulary_breakdown.map((item, idx) => (
-                    <li key={idx} className="conversation-panel__vocab-item">
-                      <span className="conversation-panel__vocab-word">{item.word}</span>
-                      <span className="conversation-panel__vocab-translation">{item.translation}</span>
-                      <span className="conversation-panel__vocab-pos">{item.part_of_speech}</span>
-                    </li>
-                  ))}
-                </ul>
+                <div className="conversation-panel__vocab-cards">
+                  {vocabulary_breakdown.map((item, idx) => {
+                    // Determine if this word is new or reactivated
+                    const isNew = new_elements && new_elements.includes(item.word);
+                    const isReactivated = reactivated_elements && reactivated_elements.includes(item.word);
+
+                    return (
+                      <div
+                        key={idx}
+                        className="conversation-panel__vocab-card"
+                        style={{ animationDelay: `${idx * 0.1}s` }}
+                      >
+                        <div className="conversation-panel__vocab-card-header">
+                          <span className="conversation-panel__vocab-word">{item.word}</span>
+                          {isNew && (
+                            <span className="conversation-panel__vocab-badge conversation-panel__vocab-badge--new">
+                              New
+                            </span>
+                          )}
+                          {isReactivated && (
+                            <span className="conversation-panel__vocab-badge conversation-panel__vocab-badge--reactivated">
+                              Reactivated
+                            </span>
+                          )}
+                        </div>
+                        <span className="conversation-panel__vocab-translation">{item.translation}</span>
+                        <span className="conversation-panel__vocab-pos">{item.part_of_speech}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
@@ -151,6 +231,7 @@ function TutorMessage({ response }) {
             )}
           </div>
         )}
+        </div>
       </div>
     </div>
   );
@@ -173,10 +254,13 @@ export default function ConversationPanel({
 }) {
   const scrollRef = useRef(null);
 
-  // Auto-scroll to the bottom when conversation updates
+  // Auto-scroll to the bottom when conversation updates (smooth)
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
     }
   }, [conversationHistory, isProcessing]);
 
@@ -214,9 +298,14 @@ export default function ConversationPanel({
         {isProcessing && (
           <div className="conversation-panel__message conversation-panel__message--tutor">
             <div className="conversation-panel__bubble conversation-panel__bubble--tutor conversation-panel__bubble--typing">
-              <span className="conversation-panel__typing-dot" />
-              <span className="conversation-panel__typing-dot" />
-              <span className="conversation-panel__typing-dot" />
+              <div className="conversation-panel__avatar conversation-panel__avatar--tutor">
+                <RobotIcon />
+              </div>
+              <div className="conversation-panel__content">
+                <span className="conversation-panel__typing-dot" />
+                <span className="conversation-panel__typing-dot" />
+                <span className="conversation-panel__typing-dot" />
+              </div>
             </div>
           </div>
         )}

@@ -49,6 +49,7 @@ function blobToBase64(blob) {
  * @param {boolean}  props.demoComplete     - Whether the mock demo is finished.
  * @param {string}   props.connectionStatus - Current WebSocket connection status.
  * @param {Function} [props.onTranscriptUpdate] - Optional callback for partial transcript updates.
+ * @param {Function} [props.onAudioLevel] - Optional callback for real-time audio levels.
  */
 export default function VoiceRecorder({
   sendMessage,
@@ -56,14 +57,35 @@ export default function VoiceRecorder({
   demoComplete,
   connectionStatus,
   onTranscriptUpdate,
+  onAudioLevel,
 }) {
   const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const animationFrameRef = useRef(null);
 
   const isConnected = connectionStatus === 'connected';
   const isDisabled = isProcessing || demoComplete || !isConnected;
+
+  // Timer effect: count up while recording
+  useEffect(() => {
+    let intervalId;
+    if (isRecording) {
+      intervalId = setInterval(() => {
+        setRecordingTime((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setRecordingTime(0);
+    }
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [isRecording]);
 
   // Cleanup: stop recording and release microphone on unmount
   useEffect(() => {
@@ -75,6 +97,14 @@ export default function VoiceRecorder({
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
+      }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+        audioContextRef.current = null;
       }
     };
   }, []);
@@ -125,15 +155,60 @@ export default function VoiceRecorder({
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start(100); // Collect data every 100ms
       setIsRecording(true);
+      setPermissionDenied(false); // Clear error on successful start
+
+      // ── Set up audio analysis for waveform visualization ──────────────
+      try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const analyser = audioContext.createAnalyser();
+        const source = audioContext.createMediaStreamSource(stream);
+
+        analyser.fftSize = 32; // Small FFT for 5 bars
+        analyser.smoothingTimeConstant = 0.8;
+        source.connect(analyser);
+
+        audioContextRef.current = audioContext;
+        analyserRef.current = analyser;
+
+        // Start audio level monitoring
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+        const updateAudioLevels = () => {
+          if (!analyserRef.current) return;
+
+          analyser.getByteFrequencyData(dataArray);
+
+          // Sample 5 points from the frequency data for 5 bars
+          const bars = 5;
+          const levels = [];
+          const step = Math.floor(dataArray.length / bars);
+
+          for (let i = 0; i < bars; i++) {
+            const index = Math.min(i * step, dataArray.length - 1);
+            // Normalize to 0-1 range
+            levels.push(dataArray[index] / 255);
+          }
+
+          if (onAudioLevel) {
+            onAudioLevel(levels);
+          }
+
+          animationFrameRef.current = requestAnimationFrame(updateAudioLevels);
+        };
+
+        updateAudioLevels();
+      } catch {
+        // Audio analysis failed, waveform will use fallback animation
+      }
 
       if (onTranscriptUpdate) {
         onTranscriptUpdate({ status: 'recording', text: '' });
       }
     } catch {
-      // Microphone access denied or unavailable — fall back to mock text
-      handleMockAdvance();
+      // Microphone access denied or unavailable
+      setPermissionDenied(true);
     }
-  }, [sendMessage, onTranscriptUpdate]);
+  }, [sendMessage, onTranscriptUpdate, onAudioLevel]);
 
   /**
    * Stop the active recording.
@@ -144,6 +219,17 @@ export default function VoiceRecorder({
       mediaRecorderRef.current = null;
     }
     setIsRecording(false);
+
+    // Clean up audio analysis
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
 
     if (onTranscriptUpdate) {
       onTranscriptUpdate({ status: 'processing', text: '' });
@@ -175,6 +261,18 @@ export default function VoiceRecorder({
     }
   }, [isDisabled, isRecording, stopRecording, startRecording]);
 
+  /**
+   * Format recording time in MM:SS format.
+   *
+   * @param {number} seconds - Total elapsed seconds.
+   * @returns {string} Formatted time string (MM:SS).
+   */
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
+
   // ── Determine button state and label ────────────────────────────────
 
   let buttonLabel = 'Speak';
@@ -192,25 +290,91 @@ export default function VoiceRecorder({
   } else if (isRecording) {
     buttonLabel = 'Stop';
     buttonClass += ' voice-recorder__button--recording';
+  } else if (permissionDenied) {
+    buttonClass += ' voice-recorder__button--error';
   }
 
   return (
     <div className="voice-recorder">
-      <button
-        className={buttonClass}
-        onClick={handleClick}
-        disabled={isDisabled}
-        aria-label={isRecording ? 'Stop recording' : 'Start recording'}
-      >
-        <span className="voice-recorder__icon">
-          {isRecording ? '⏹' : '🎤'}
-        </span>
-        <span className="voice-recorder__label">{buttonLabel}</span>
-      </button>
+      <div className="voice-recorder__button-wrapper">
+        <button
+          className={buttonClass}
+          onClick={handleClick}
+          disabled={isDisabled}
+          aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+        >
+          <span className="voice-recorder__icon">
+            {isRecording ? (
+              <svg
+                width="32"
+                height="32"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <rect
+                  x="6"
+                  y="6"
+                  width="12"
+                  height="12"
+                  rx="2"
+                  fill="currentColor"
+                />
+              </svg>
+            ) : (
+              <svg
+                width="32"
+                height="32"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M12 15C13.6569 15 15 13.6569 15 12V6C15 4.34315 13.6569 3 12 3C10.3431 3 9 4.34315 9 6V12C9 13.6569 10.3431 15 12 15Z"
+                  fill="currentColor"
+                />
+                <path
+                  d="M19 11V12C19 15.866 15.866 19 12 19C8.13401 19 5 15.866 5 12V11"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M12 19V22"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M9 22H15"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            )}
+          </span>
+          <span className="voice-recorder__label">{buttonLabel}</span>
+        </button>
+        {isRecording && (
+          <>
+            <span className="voice-recorder__ripple voice-recorder__ripple--1" />
+            <span className="voice-recorder__ripple voice-recorder__ripple--2" />
+            <span className="voice-recorder__ripple voice-recorder__ripple--3" />
+          </>
+        )}
+      </div>
       {isRecording && (
         <div className="voice-recorder__indicator">
           <span className="voice-recorder__pulse" />
           <span className="voice-recorder__indicator-text">Listening...</span>
+          <span className="voice-recorder__timer">{formatTime(recordingTime)}</span>
+        </div>
+      )}
+      {permissionDenied && (
+        <div className="voice-recorder__error">
+          <span className="voice-recorder__error-icon">⚠️</span>
+          <span className="voice-recorder__error-text">Microphone access required</span>
         </div>
       )}
     </div>
