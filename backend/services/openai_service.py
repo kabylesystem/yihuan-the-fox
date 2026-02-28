@@ -27,29 +27,30 @@ class OpenAIService:
             api_key=api_key,
             organization=org_id if org_id else None,
         )
-        self._model = "gpt-5.2"
+        self._model = "o4-mini"
+        self._conversation_history: list[dict] = []
         self._system_prompt = (
-            "You are a friendly French language tutor following Krashen's i+1 theory. "
-            "Respond in French at a level slightly above the learner's current ability. "
-            "For each response, provide:\n"
-            "1. A spoken French response (natural, conversational)\n"
-            "2. An English translation hint\n"
-            "3. Vocabulary breakdown of key words (word, translation, part_of_speech)\n"
-            "4. New linguistic elements introduced this turn\n"
-            "5. Previously learned elements you are reactivating\n"
-            "6. Current CEFR level assessment (A1, A1+, A2, etc.)\n"
-            "7. A border update describing the learner's expanding linguistic ability\n"
-            "8. Mastery scores (0.0-1.0) for all tracked vocabulary/structures\n\n"
-            "Return your response as valid JSON matching this schema:\n"
+            "You are a friendly, encouraging French language tutor following Krashen's i+1 theory. "
+            "The learner is practicing conversational French. Respond naturally in French "
+            "at a level slightly above their current ability — push them just enough to grow.\n\n"
+            "IMPORTANT RULES:\n"
+            "- Keep spoken_response SHORT (1-3 sentences max), natural and conversational\n"
+            "- Always end with a question to keep the conversation flowing\n"
+            "- Track ALL vocabulary the learner has used across the conversation\n"
+            "- Mastery scores should increase for words used multiple times (spaced repetition)\n"
+            "- Gently correct errors in your response without being pedantic\n"
+            "- Introduce 2-3 new elements per turn (i+1), never overwhelm\n"
+            "- Reactivate previously learned words naturally in your responses\n\n"
+            "Return ONLY valid JSON matching this exact schema:\n"
             "{\n"
-            '  "spoken_response": "...",\n'
-            '  "translation_hint": "...",\n'
-            '  "vocabulary_breakdown": [{"word": "...", "translation": "...", "part_of_speech": "..."}],\n'
-            '  "new_elements": ["..."],\n'
-            '  "reactivated_elements": ["..."],\n'
+            '  "spoken_response": "Your French response here",\n'
+            '  "translation_hint": "English translation",\n'
+            '  "vocabulary_breakdown": [{"word": "mot", "translation": "word", "part_of_speech": "noun"}],\n'
+            '  "new_elements": ["new grammar or vocab introduced"],\n'
+            '  "reactivated_elements": ["previously learned items reused"],\n'
             '  "user_level_assessment": "A1",\n'
-            '  "border_update": "...",\n'
-            '  "mastery_scores": {"word": 0.5}\n'
+            '  "border_update": "What the learner can now do",\n'
+            '  "mastery_scores": {"bonjour": 0.8, "merci": 0.5}\n'
             "}"
         )
 
@@ -94,28 +95,40 @@ class OpenAIService:
         return MOCK_CONVERSATION[turn_number]["response"]
 
     async def _real_generate(self, user_text: str) -> dict:
-        """Generate a tutor response using GPT-5.2 via AsyncOpenAI.
+        """Generate a tutor response using o4-mini via AsyncOpenAI.
 
-        Sends the user's French input along with the system prompt
-        to produce an i+1 adaptive response with full pedagogical fields.
+        Maintains conversation history so the model tracks learner progress
+        across multiple turns and can reactivate previously learned elements.
 
         Args:
             user_text: What the user said in French.
 
         Returns:
-            Dictionary containing all TutorResponse fields parsed from GPT output.
+            Dictionary containing all TutorResponse fields parsed from model output.
         """
         import json
 
+        # Add user message to history
+        self._conversation_history.append(
+            {"role": "user", "content": user_text}
+        )
+
+        messages = [
+            {"role": "system", "content": self._system_prompt},
+            *self._conversation_history,
+        ]
+
         completion = await self._client.chat.completions.create(
             model=self._model,
-            messages=[
-                {"role": "system", "content": self._system_prompt},
-                {"role": "user", "content": user_text},
-            ],
+            messages=messages,
             response_format={"type": "json_object"},
-            temperature=0.7,
         )
 
         response_text = completion.choices[0].message.content
+
+        # Add assistant response to history for context continuity
+        self._conversation_history.append(
+            {"role": "assistant", "content": response_text}
+        )
+
         return json.loads(response_text)

@@ -1,176 +1,19 @@
-:root {
-  font-family: 'Inter', 'SF Pro Display', system-ui, -apple-system, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
+@import "tailwindcss";
 
-  color-scheme: dark;
-  color: #e0e4ef;
-  background-color: #0a0e18;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-
-  /* ═══════════════════════════════════════════════════════════════════════
-     Neural-Sync CSS Custom Properties
-     ═══════════════════════════════════════════════════════════════════════ */
-
-  /* ── Background Colors ──────────────────────────────────────────────── */
-  --bg-deep: #0a0e18;
-  --bg-panel: #111827;
-  --bg-panel-alt: #0d1220;
-  --bg-card: #1a1e2e;
-  --bg-hover: #242940;
-  --bg-surface: rgba(26, 30, 46, 0.6);
-  --bg-surface-solid: rgba(26, 30, 46, 0.8);
-  --bg-overlay: rgba(10, 14, 24, 0.6);
-
-  /* ── Accent Colors ─────────────────────────────────────────────────── */
-  --accent-primary: #6a9fff;
-  --accent-primary-light: #8cb5ff;
-  --accent-purple: #bb77ff;
-  --accent-green: #44ff44;
-  --accent-red: #ff4444;
-  --accent-red-light: #ff6b6b;
-  --accent-yellow: #ffaa00;
-
-  /* ── Text Colors ───────────────────────────────────────────────────── */
-  --text-primary: #e0e4ef;
-  --text-secondary: #8892b0;
-  --text-label: #c0c8e0;
-  --text-muted: #5a6480;
-
-  /* ── Border Colors ─────────────────────────────────────────────────── */
-  --border-primary: rgba(100, 160, 255, 0.15);
-  --border-medium: rgba(100, 160, 255, 0.12);
-  --border-light: rgba(100, 160, 255, 0.1);
-  --border-subtle: rgba(100, 160, 255, 0.08);
-  --border-accent: rgba(100, 160, 255, 0.2);
-  --border-accent-strong: rgba(100, 160, 255, 0.25);
-  --border-accent-hover: rgba(100, 160, 255, 0.3);
-  --border-accent-focus: rgba(100, 160, 255, 0.4);
-  --border-purple: rgba(187, 119, 255, 0.15);
-  --border-purple-medium: rgba(187, 119, 255, 0.3);
-  --border-green: rgba(68, 255, 68, 0.2);
-  --border-green-medium: rgba(68, 255, 68, 0.3);
-  --border-red: rgba(255, 68, 68, 0.2);
-  --border-red-medium: rgba(255, 68, 68, 0.3);
-  --border-yellow: rgba(255, 170, 0, 0.2);
-  --border-yellow-medium: rgba(255, 170, 0, 0.3);
-
-  /* ── Background Overlays (status, alerts, etc.) ────────────────────── */
-  --overlay-error: rgba(255, 68, 68, 0.15);
-  --overlay-warning: rgba(255, 170, 0, 0.12);
-  --overlay-success: rgba(68, 255, 68, 0.05);
-  --overlay-primary: rgba(100, 160, 255, 0.1);
-  --overlay-primary-hover: rgba(100, 160, 255, 0.2);
-  --overlay-primary-subtle: rgba(106, 159, 255, 0.05);
-  --overlay-purple: rgba(187, 119, 255, 0.08);
-  --overlay-green: rgba(68, 255, 68, 0.1);
-  --overlay-green-subtle: rgba(68, 255, 68, 0.15);
-  --overlay-red: rgba(255, 68, 68, 0.08);
-
-  /* ── Gradients ─────────────────────────────────────────────────────── */
-  --gradient-header: linear-gradient(180deg, #111827 0%, #0d1220 100%);
-  --gradient-accent: linear-gradient(135deg, #6a9fff 0%, #bb77ff 100%);
-  --gradient-button-blue: linear-gradient(135deg, #1a2740 0%, #1e2d4a 100%);
-  --gradient-button-red: linear-gradient(135deg, #3a1520 0%, #4a1a2a 100%);
-  --gradient-bubble-user: linear-gradient(135deg, #1e3a5f 0%, #1a2d4a 100%);
-  --gradient-bubble-tutor: linear-gradient(135deg, #1e2240 0%, #1a1e35 100%);
-  --gradient-success: linear-gradient(135deg, rgba(68, 255, 68, 0.05) 0%, rgba(106, 159, 255, 0.05) 100%);
-
-  /* ── Shadows ───────────────────────────────────────────────────────── */
-  --shadow-glow-blue-sm: 0 0 8px rgba(106, 159, 255, 0.4);
-  --shadow-glow-blue-md: 0 0 20px rgba(100, 160, 255, 0.1);
-  --shadow-glow-blue-lg: 0 0 30px rgba(100, 160, 255, 0.25);
-  --shadow-glow-green: 0 0 8px rgba(68, 255, 68, 0.5);
-  --shadow-glow-red-sm: 0 0 20px rgba(255, 68, 68, 0.2);
-  --shadow-glow-red-md: 0 0 30px rgba(255, 68, 68, 0.3);
-  --shadow-glow-red-lg: 0 0 40px rgba(255, 68, 68, 0.5);
-  --shadow-bar-glow: 0 0 8px rgba(106, 159, 255, 0.2);
-  --filter-drop-shadow-blue: drop-shadow(0 0 8px rgba(106, 159, 255, 0.4));
-
-  /* ── Transitions ───────────────────────────────────────────────────── */
-  --transition-fast: 0.2s ease;
-  --transition-medium: 0.3s ease;
-  --transition-slow: 0.5s ease;
-  --transition-border: border-color 0.25s, background-color 0.25s;
-  --transition-all-fast: all 0.2s ease;
-  --transition-all-medium: all 0.3s ease;
-  --transition-all-slow: all 0.5s ease;
-  --transition-opacity: opacity 0.2s;
-  --transition-bar-width: width 0.8s ease;
-  --transition-bar-color: background-color 0.5s ease;
-  --transition-bar-full: width 0.8s ease, background-color 0.5s ease;
-  --transition-mastery: width 0.6s ease, background-color 0.4s ease;
-  --transition-color: color 0.5s ease;
-
-  /* ── Border Radius ─────────────────────────────────────────────────── */
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 10px;
-  --radius-xl: 12px;
-  --radius-2xl: 14px;
-  --radius-3xl: 16px;
-  --radius-full: 50%;
-
-  /* ── Spacing (commonly used gaps/padding) ──────────────────────────── */
-  --spacing-xs: 4px;
-  --spacing-sm: 8px;
-  --spacing-md: 12px;
-  --spacing-lg: 16px;
-  --spacing-xl: 20px;
-  --spacing-2xl: 24px;
-
-  /* ── Z-Index ───────────────────────────────────────────────────────── */
-  --z-banner: 100;
-  --z-modal: 200;
-  --z-tooltip: 300;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-a {
-  font-weight: 500;
-  color: #6a9fff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #8cb5ff;
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
 body {
   margin: 0;
-  min-width: 320px;
-  min-height: 100vh;
-  background-color: #0a0e18;
+  padding: 0;
+  background-color: #050505;
+  color: white;
+  overflow: hidden;
 }
 
-h1 {
-  font-size: 1.5em;
-  line-height: 1.1;
-}
-
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1e2e;
-  color: #e0e4ef;
-  cursor: pointer;
-  transition: border-color 0.25s, background-color 0.25s;
-}
-button:hover {
-  border-color: rgba(100, 160, 255, 0.3);
-}
-button:focus,
-button:focus-visible {
-  outline: 2px solid rgba(106, 159, 255, 0.5);
-  outline-offset: 2px;
+canvas {
+  touch-action: none;
 }

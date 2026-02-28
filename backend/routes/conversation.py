@@ -20,6 +20,7 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from backend.config import MOCK_MODE
 from backend.mock_data import MOCK_CONVERSATION
 from backend.models import ConversationTurn, TutorResponse
 from backend.routes.session import get_session_state
@@ -168,8 +169,8 @@ async def _process_turn(
     state.mastery_scores.update(tutor_response.mastery_scores)
     state.turn += 1
 
-    # Check if all mock turns have been exhausted
-    if state.turn > total_mock_turns:
+    # Check if all mock turns have been exhausted (only in mock mode)
+    if MOCK_MODE and state.turn > total_mock_turns:
         state.demo_complete = True
 
     # ── Build response payload ───────────────────────────────────────

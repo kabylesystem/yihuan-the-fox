@@ -1,3 +1,6 @@
+# Environment variables (API keys)
+.env
+
 # Auto Claude data directory
 .auto-claude/
 
