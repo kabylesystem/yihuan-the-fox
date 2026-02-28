@@ -3,11 +3,11 @@ import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 
 const COLORS = {
-  hull: '#6fd5ff',
-  hullDark: '#1a4b6e',
-  edge: '#c9f2ff',
-  glow: '#4bdcff',
-  glowSoft: '#7cf6ff',
+  hull: '#3aa6d6',
+  hullDark: '#123a55',
+  edge: '#bfefff',
+  glass: '#7de7ff',
+  glow: '#39d9ff',
 };
 
 export function NavigationShip(props: {
@@ -32,44 +32,46 @@ export function NavigationShip(props: {
   const materials = useMemo(() => {
     const hull = new THREE.MeshStandardMaterial({
       color: COLORS.hull,
-      emissive: new THREE.Color('#06263b'),
-      emissiveIntensity: 0.25,
-      metalness: 0.7,
-      roughness: 0.28,
+      emissive: new THREE.Color('#021520'),
+      emissiveIntensity: 0.14,
+      metalness: 0.65,
+      roughness: 0.42,
     });
 
     const hullDark = new THREE.MeshStandardMaterial({
       color: COLORS.hullDark,
       emissive: new THREE.Color('#02121e'),
-      emissiveIntensity: 0.18,
-      metalness: 0.65,
-      roughness: 0.35,
+      emissiveIntensity: 0.1,
+      metalness: 0.6,
+      roughness: 0.5,
     });
 
     const edge = new THREE.MeshStandardMaterial({
       color: COLORS.edge,
       emissive: new THREE.Color(COLORS.glow),
-      emissiveIntensity: 0.45,
-      metalness: 0.75,
-      roughness: 0.22,
+      emissiveIntensity: 0.22,
+      metalness: 0.7,
+      roughness: 0.35,
+    });
+
+    const glass = new THREE.MeshStandardMaterial({
+      color: COLORS.glass,
+      emissive: new THREE.Color(COLORS.glow),
+      emissiveIntensity: 0.22,
+      metalness: 0.1,
+      roughness: 0.15,
+      transparent: true,
+      opacity: 0.88,
     });
 
     const glow = new THREE.MeshBasicMaterial({
       color: COLORS.glow,
       transparent: true,
-      opacity: 0.75,
+      opacity: 0.45,
       toneMapped: false,
     });
 
-    const glowSoft = new THREE.MeshBasicMaterial({
-      color: COLORS.glowSoft,
-      transparent: true,
-      opacity: 0.25,
-      toneMapped: false,
-      depthWrite: false,
-    });
-
-    return { hull, hullDark, edge, glow, glowSoft };
+    return { hull, hullDark, edge, glass, glow };
   }, []);
 
   useFrame((state) => {
@@ -83,55 +85,58 @@ export function NavigationShip(props: {
 
     if (thrusterRef.current) {
       const m = thrusterRef.current.material as THREE.MeshBasicMaterial;
-      m.opacity = 0.25 + 0.55 * (0.35 + 0.65 * props.thruster01);
-      thrusterRef.current.scale.setScalar(0.9 + 0.25 * props.thruster01);
+      m.opacity = 0.16 + 0.42 * (0.35 + 0.65 * props.thruster01);
+      thrusterRef.current.scale.setScalar(0.85 + 0.18 * props.thruster01);
     }
   });
 
   return (
     <group ref={groupRef}>
-      {/* Core fuselage */}
-      <mesh material={materials.hull} rotation={[0, 0, 0]}>
-        <capsuleGeometry args={[0.18, 0.55, 8, 14]} />
-      </mesh>
-
-      {/* Cockpit / canopy */}
-      <mesh position={[0, 0.1, 0.22]} material={materials.edge}>
-        <sphereGeometry args={[0.14, 16, 16]} />
-      </mesh>
-
-      {/* Wings (thin, sharp silhouette) */}
-      <mesh position={[0.22, -0.02, 0.06]} rotation={[0, 0, Math.PI * 0.12]} material={materials.hullDark}>
-        <boxGeometry args={[0.42, 0.04, 0.26]} />
-      </mesh>
-      <mesh position={[-0.22, -0.02, 0.06]} rotation={[0, 0, -Math.PI * 0.12]} material={materials.hullDark}>
-        <boxGeometry args={[0.42, 0.04, 0.26]} />
-      </mesh>
-
-      {/* Nose tip */}
-      <mesh position={[0, 0, 0.44]} rotation={[Math.PI / 2, 0, 0]} material={materials.edge}>
-        <coneGeometry args={[0.11, 0.22, 14]} />
-      </mesh>
-
-      {/* Rear engine block */}
-      <mesh position={[0, -0.02, -0.34]} material={materials.hullDark}>
-        <boxGeometry args={[0.22, 0.12, 0.22]} />
-      </mesh>
-
-      {/* Twin thrusters */}
-      <group position={[0, -0.02, -0.48]}>
-        <mesh position={[0.07, 0, 0]} material={materials.edge}>
-          <cylinderGeometry args={[0.05, 0.06, 0.12, 14]} />
-        </mesh>
-        <mesh position={[-0.07, 0, 0]} material={materials.edge}>
-          <cylinderGeometry args={[0.05, 0.06, 0.12, 14]} />
+      {/* Rocket-like silhouette (reference): cone nose + cylinder body + window + fins */}
+      <group>
+        {/* Main body */}
+        <mesh material={materials.hull}>
+          <cylinderGeometry args={[0.18, 0.2, 0.75, 18, 1, false]} />
         </mesh>
 
-        {/* Thruster glow */}
-        <mesh ref={thrusterRef} position={[0, 0, -0.11]} material={materials.glow}>
-          <sphereGeometry args={[0.12, 10, 10]} />
+        {/* Nose cone */}
+        <mesh position={[0, 0, 0.52]} rotation={[Math.PI / 2, 0, 0]} material={materials.edge}>
+          <coneGeometry args={[0.18, 0.34, 18]} />
         </mesh>
-        <pointLight intensity={1.5} color={COLORS.glow} distance={2.6} />
+
+        {/* Mid ring accent */}
+        <mesh position={[0, 0, 0.08]} material={materials.hullDark}>
+          <torusGeometry args={[0.195, 0.025, 10, 28]} />
+        </mesh>
+
+        {/* Window */}
+        <mesh position={[0, 0.06, 0.33]} material={materials.glass}>
+          <sphereGeometry args={[0.095, 18, 18]} />
+        </mesh>
+
+        {/* Fins */}
+        <mesh position={[0.18, -0.12, -0.24]} rotation={[0, 0, Math.PI * 0.08]} material={materials.hullDark}>
+          <boxGeometry args={[0.18, 0.08, 0.22]} />
+        </mesh>
+        <mesh position={[-0.18, -0.12, -0.24]} rotation={[0, 0, -Math.PI * 0.08]} material={materials.hullDark}>
+          <boxGeometry args={[0.18, 0.08, 0.22]} />
+        </mesh>
+
+        {/* Engine nozzle */}
+        <mesh position={[0, -0.03, -0.45]} material={materials.edge}>
+          <cylinderGeometry args={[0.11, 0.14, 0.16, 16]} />
+        </mesh>
+        <mesh position={[0, -0.03, -0.56]} material={materials.hullDark}>
+          <cylinderGeometry args={[0.08, 0.1, 0.1, 14]} />
+        </mesh>
+
+        {/* Thruster glow (subtle) */}
+        <group position={[0, -0.03, -0.65]}>
+          <mesh ref={thrusterRef} material={materials.glow}>
+            <sphereGeometry args={[0.11, 10, 10]} />
+          </mesh>
+          <pointLight intensity={0.9} color={COLORS.glow} distance={2.2} />
+        </group>
       </group>
     </group>
   );
