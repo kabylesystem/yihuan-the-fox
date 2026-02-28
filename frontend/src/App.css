@@ -853,7 +853,7 @@
 /* Bubbles */
 .conversation-panel__bubble {
   max-width: 85%;
-  padding: 12px 16px;
+  padding: 16px;
   border-radius: 16px;
   position: relative;
 }
