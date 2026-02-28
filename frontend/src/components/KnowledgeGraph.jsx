@@ -14,6 +14,8 @@
  * Interactions:
  *  - Drag nodes to rearrange the graph
  *  - Hover for tooltip with label, mastery, type, and CEFR level
+ *  - Scroll wheel to zoom (0.5x to 4x scale)
+ *  - Drag background to pan the graph
  *  - Graph auto-centers and re-simulates when data changes
  *
  * Props:
@@ -187,8 +189,22 @@ export default function KnowledgeGraph({ nodes, links }) {
 
     simulationRef.current = simulation;
 
-    // ── Main SVG group (for potential zoom later) ────────────────────
+    // ── Main SVG group (for zoom/pan) ────────────────────────────────
     const g = svg.append('g');
+
+    // ── Zoom and pan behavior ────────────────────────────────────────
+    const zoom = d3.zoom()
+      .scaleExtent([0.5, 4])  // Allow zoom from 0.5x to 4x
+      .filter((event) => {
+        // Allow zoom/pan on wheel or when not dragging a node
+        // This prevents zoom from interfering with node drag
+        return event.type === 'wheel' || !event.target.closest('.knowledge-graph__node');
+      })
+      .on('zoom', (event) => {
+        g.attr('transform', event.transform);
+      });
+
+    svg.call(zoom);
 
     // ── Render edges ─────────────────────────────────────────────────
     const linkGroup = g.append('g').attr('class', 'knowledge-graph__links');
