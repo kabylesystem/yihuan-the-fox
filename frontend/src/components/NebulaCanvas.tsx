@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceX, forceY, forceZ } from 'd3-force-3d';
 import { Neuron, Synapse, Category } from '../types';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
+import { NavigationFlightLayer } from './navigation';
 
 const CATEGORY_COLORS: Record<Category, string> = {
   work: '#3b82f6', // blue
@@ -440,11 +441,8 @@ function Spaceship({ position, target }: { position: THREE.Vector3; target: THRE
   );
 }
 
-function CameraController({ targetNode, isFlying, isFocused }: { targetNode: Neuron | null; isFlying: boolean; isFocused?: boolean }) {
+function CameraController({ targetNode, isFocused }: { targetNode: Neuron | null; isFocused?: boolean }) {
   const { camera, controls } = useThree() as any;
-  const flightAngle = useRef(0);
-  const [shipPos] = useState(() => new THREE.Vector3());
-  const [shipTarget] = useState(() => new THREE.Vector3());
   
   useFrame((state, delta) => {
     if (isFocused && targetNode && targetNode.x !== undefined) {
@@ -460,29 +458,10 @@ function CameraController({ targetNode, isFlying, isFocused }: { targetNode: Neu
       if (controls) {
         controls.target.lerp(new THREE.Vector3(targetNode.x, targetNode.y, targetNode.z), 0.05);
       }
-    } else if (isFlying) {
-      // Interstellar flight logic: move camera in a large circle or path
-      flightAngle.current += delta * 0.05; // Slower, more majestic flight
-      const radius = 20;
-      const x = Math.cos(flightAngle.current) * radius;
-      const z = Math.sin(flightAngle.current) * radius;
-      const y = Math.sin(flightAngle.current * 0.5) * 8;
-      
-      const flightPos = new THREE.Vector3(x, y, z);
-      camera.position.lerp(flightPos, 0.01);
-      
-      // Update ship position to be slightly in front of camera
-      const shipOffset = new THREE.Vector3(0, -1.2, -4).applyQuaternion(camera.quaternion);
-      shipPos.copy(camera.position).add(shipOffset);
-      shipTarget.copy(camera.position).add(new THREE.Vector3(0, 0, -10).applyQuaternion(camera.quaternion));
-
-      if (controls) {
-        controls.target.lerp(new THREE.Vector3(0, 0, 0), 0.01);
-      }
     }
   });
 
-  return isFlying ? <Spaceship position={shipPos} target={shipTarget} /> : null;
+  return null;
 }
 
 export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick, filterCategory, searchTarget, timePulse, shootingStars, onShootingStarComplete, isFlying }: { 
@@ -622,7 +601,11 @@ export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick,
           ))}
         </group>
 
-        <CameraController targetNode={activeSearchTarget} isFlying={isFlying} isFocused={focusNodeId !== null} />
+        {!isFlying && (
+          <CameraController targetNode={activeSearchTarget} isFocused={focusNodeId !== null} />
+        )}
+
+        <NavigationFlightLayer enabled={isFlying} nodes={positionedNodes} timePulse={timePulse} />
 
         <EffectComposer>
           <Bloom luminanceThreshold={0.1} luminanceSmoothing={0.9} height={300} intensity={1.5} />
@@ -630,6 +613,7 @@ export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick,
 
         <OrbitControls 
           makeDefault 
+          enabled={!isFlying}
           autoRotate={!activeSearchTarget && !isFlying && !focusNodeId} 
           autoRotateSpeed={0.3} 
           enableDamping 
