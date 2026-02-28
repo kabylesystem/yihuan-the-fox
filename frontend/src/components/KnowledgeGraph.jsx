@@ -93,6 +93,10 @@ export default function KnowledgeGraph({ nodes, links }) {
   const containerRef = useRef(null);
   const simulationRef = useRef(null);
   const tooltipRef = useRef(null);
+  const canvasRef = useRef(null);
+  const particlesRef = useRef([]);
+  const animationFrameRef = useRef(null);
+  const zoomTransformRef = useRef(null);
 
   /**
    * Get the radius for a given node type.
@@ -100,6 +104,143 @@ export default function KnowledgeGraph({ nodes, links }) {
   const getRadius = useCallback((type) => {
     return NODE_RADIUS[type] || NODE_RADIUS.vocab;
   }, []);
+
+  // ── Particle animation system ──────────────────────────────────────────
+  /**
+   * Particle class for edge animations.
+   * Each particle travels along an edge from source to target.
+   */
+  class Particle {
+    constructor(link, color, speed = 0.0005) {
+      this.link = link;
+      this.color = color;
+      this.speed = speed + Math.random() * 0.0003; // Slight variation
+      this.progress = Math.random(); // Random starting position
+      this.size = 2 + Math.random() * 2; // 2-4px radius
+      this.opacity = 0.6 + Math.random() * 0.4; // 0.6-1.0 opacity
+    }
+
+    update(deltaTime) {
+      this.progress += this.speed * deltaTime;
+      if (this.progress > 1) {
+        this.progress = 0;
+      }
+    }
+
+    getPosition() {
+      // Linear interpolation between source and target
+      const sourceX = this.link.source.x || 0;
+      const sourceY = this.link.source.y || 0;
+      const targetX = this.link.target.x || 0;
+      const targetY = this.link.target.y || 0;
+
+      return {
+        x: sourceX + (targetX - sourceX) * this.progress,
+        y: sourceY + (targetY - sourceY) * this.progress,
+      };
+    }
+
+    draw(ctx, transform) {
+      const pos = this.getPosition();
+
+      // Apply zoom/pan transform
+      const x = pos.x * transform.k + transform.x;
+      const y = pos.y * transform.k + transform.y;
+      const size = this.size * transform.k;
+
+      // Draw glowing particle
+      ctx.save();
+
+      // Outer glow
+      const gradient = ctx.createRadialGradient(x, y, 0, x, y, size * 3);
+      // Convert hex color to rgba for gradient (e.g., #6a9fff -> rgba(106, 159, 255, ...))
+      const r = parseInt(this.color.slice(1, 3), 16);
+      const g = parseInt(this.color.slice(3, 5), 16);
+      const b = parseInt(this.color.slice(5, 7), 16);
+      gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.8)`);
+      gradient.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, 0.3)`);
+      gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(x, y, size * 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Core particle
+      ctx.fillStyle = this.color;
+      ctx.globalAlpha = this.opacity;
+      ctx.beginPath();
+      ctx.arc(x, y, size, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
+  // ── Canvas sizing effect ────────────────────────────────────────────────
+  useEffect(() => {
+    if (!canvasRef.current || !containerRef.current) return;
+
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+
+    // Set canvas size to match container
+    const updateCanvasSize = () => {
+      const { width, height } = container.getBoundingClientRect();
+      if (width > 0 && height > 0) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+    };
+
+    updateCanvasSize();
+
+    // Optional: Listen for resize events
+    const resizeObserver = new ResizeObserver(updateCanvasSize);
+    resizeObserver.observe(container);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
+
+  // ── Particle animation loop ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!canvasRef.current || !containerRef.current) return;
+    if (!links || links.length === 0) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    let lastTime = performance.now();
+
+    function animate(currentTime) {
+      const deltaTime = currentTime - lastTime;
+      lastTime = currentTime;
+
+      // Clear canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Get current zoom transform
+      const transform = zoomTransformRef.current || { x: 0, y: 0, k: 1 };
+
+      // Update and draw particles
+      particlesRef.current.forEach((particle) => {
+        particle.update(deltaTime);
+        particle.draw(ctx, transform);
+      });
+
+      animationFrameRef.current = requestAnimationFrame(animate);
+    }
+
+    animationFrameRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+    };
+  }, [links]);
 
   // ── Main D3 render effect ───────────────────────────────────────────────
   useEffect(() => {
@@ -110,6 +251,11 @@ export default function KnowledgeGraph({ nodes, links }) {
     const container = containerRef.current;
     const { width, height } = container.getBoundingClientRect();
     if (width === 0 || height === 0) return;
+
+    // Initialize zoom transform if not set
+    if (!zoomTransformRef.current) {
+      zoomTransformRef.current = { x: 0, y: 0, k: 1 };
+    }
 
     // ── Clean up any existing simulation ──────────────────────────────
     if (simulationRef.current) {
@@ -212,6 +358,8 @@ export default function KnowledgeGraph({ nodes, links }) {
       })
       .on('zoom', (event) => {
         g.attr('transform', event.transform);
+        // Store transform for particle rendering
+        zoomTransformRef.current = event.transform;
       });
 
     svg.call(zoom);
@@ -239,6 +387,17 @@ export default function KnowledgeGraph({ nodes, links }) {
       .attr('opacity', 0.7)
       .attr('dy', -6)
       .text((d) => d.relationship);
+
+    // ── Create particles for each edge ───────────────────────────────
+    particlesRef.current = [];
+    simLinks.forEach((link) => {
+      const color = EDGE_COLOR[link.relationship] || '#6a9fff';
+      // Create 2-3 particles per edge
+      const particleCount = 2 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < particleCount; i++) {
+        particlesRef.current.push(new Particle(link, color));
+      }
+    });
 
     // ── Render nodes ─────────────────────────────────────────────────
     const nodeGroup = g.append('g').attr('class', 'knowledge-graph__nodes');
@@ -421,13 +580,27 @@ export default function KnowledgeGraph({ nodes, links }) {
         )}
       </div>
 
-      <div className="knowledge-graph__canvas">
+      <div className="knowledge-graph__canvas" style={{ position: 'relative' }}>
         {hasData ? (
-          <svg
-            ref={svgRef}
-            className="knowledge-graph__svg"
-            style={{ width: '100%', height: '100%' }}
-          />
+          <>
+            <svg
+              ref={svgRef}
+              className="knowledge-graph__svg"
+              style={{ width: '100%', height: '100%' }}
+            />
+            <canvas
+              ref={canvasRef}
+              className="knowledge-graph__particle-canvas"
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                pointerEvents: 'none',
+              }}
+            />
+          </>
         ) : (
           <div className="knowledge-graph__empty">
             <div className="knowledge-graph__empty-icon">🧠</div>
