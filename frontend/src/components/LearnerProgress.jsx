@@ -135,29 +135,27 @@ export default function LearnerProgress({
             <span className="learner-progress__section-icon">📊</span>
             Concept Mastery
           </h3>
-          <div className="learner-progress__mastery-list">
+          <div className="learner-progress__mastery-grid">
             {sortedEntries.map(([concept, score]) => (
-              <div key={concept} className="learner-progress__mastery-item">
-                <div className="learner-progress__mastery-info">
-                  <span className="learner-progress__mastery-concept">
-                    {concept}
-                  </span>
-                  <span
-                    className="learner-progress__mastery-pct"
-                    style={{ color: masteryColor(score) }}
-                  >
-                    {Math.round(score * 100)}%
-                  </span>
-                </div>
-                <div className="learner-progress__mastery-bar-track">
+              <div key={concept} className="learner-progress__mastery-card">
+                <span className="learner-progress__mastery-card-name">
+                  {concept}
+                </span>
+                <div className="learner-progress__mastery-card-bar-track">
                   <div
-                    className="learner-progress__mastery-bar-fill"
+                    className="learner-progress__mastery-card-bar-fill"
                     style={{
                       width: `${Math.round(score * 100)}%`,
                       backgroundColor: masteryColor(score),
                     }}
                   />
                 </div>
+                <span
+                  className="learner-progress__mastery-card-pct"
+                  style={{ color: masteryColor(score) }}
+                >
+                  {Math.round(score * 100)}%
+                </span>
               </div>
             ))}
           </div>

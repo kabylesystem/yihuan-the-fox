@@ -1548,60 +1548,64 @@
   padding: 0 20px 16px;
 }
 
-.learner-progress__mastery-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 200px;
+.learner-progress__mastery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  max-height: 240px;
   overflow-y: auto;
   padding-right: 4px;
 }
 
-/* Mastery list scrollbar */
-.learner-progress__mastery-list::-webkit-scrollbar {
+/* Mastery grid scrollbar */
+.learner-progress__mastery-grid::-webkit-scrollbar {
   width: 4px;
 }
-.learner-progress__mastery-list::-webkit-scrollbar-track {
+.learner-progress__mastery-grid::-webkit-scrollbar-track {
   background: transparent;
 }
-.learner-progress__mastery-list::-webkit-scrollbar-thumb {
+.learner-progress__mastery-grid::-webkit-scrollbar-thumb {
   background: var(--border-medium);
   border-radius: 2px;
 }
 
-.learner-progress__mastery-item {
+.learner-progress__mastery-card {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  transition: var(--transition-all-fast);
+  animation: slide-up 0.3s ease-out backwards;
 }
 
-.learner-progress__mastery-info {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.learner-progress__mastery-card:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-accent);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-.learner-progress__mastery-concept {
+.learner-progress__mastery-card-name {
   font-size: 12px;
   color: var(--text-label);
   font-weight: 500;
+  line-height: 1.2;
+  min-height: 2.4em;
 }
 
-.learner-progress__mastery-pct {
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.learner-progress__mastery-bar-track {
-  height: 5px;
+.learner-progress__mastery-card-bar-track {
+  height: 4px;
   background: var(--bg-surface-solid);
-  border-radius: 3px;
+  border-radius: 2px;
   overflow: hidden;
 }
 
-.learner-progress__mastery-bar-fill {
+.learner-progress__mastery-card-bar-fill {
   height: 100%;
-  border-radius: 3px;
+  border-radius: 2px;
   transition: var(--transition-mastery);
   background-image: linear-gradient(
     90deg,
@@ -1611,6 +1615,12 @@
   );
   background-size: 200% 100%;
   animation: shimmer 2s linear infinite;
+}
+
+.learner-progress__mastery-card-pct {
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
 }
 
 /* Empty state */
