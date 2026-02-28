@@ -65,7 +65,10 @@ function resolveFrenchVoice() {
 
     // Wait for voices to load (Chrome fires this asynchronously)
     if (window.speechSynthesis && window.speechSynthesis.onvoiceschanged !== undefined) {
+      let timeoutId = null;
+
       const handler = () => {
+        if (timeoutId) clearTimeout(timeoutId);
         window.speechSynthesis.removeEventListener('voiceschanged', handler);
         _cachedVoice = findFrenchVoice();
         _voiceResolved = true;
@@ -74,7 +77,8 @@ function resolveFrenchVoice() {
       window.speechSynthesis.addEventListener('voiceschanged', handler);
 
       // Safety timeout — don't wait forever
-      setTimeout(() => {
+      timeoutId = setTimeout(() => {
+        window.speechSynthesis.removeEventListener('voiceschanged', handler);
         _voiceResolved = true;
         resolve(_cachedVoice);
       }, 2000);

@@ -169,15 +169,19 @@ export function useConversation() {
   const sendMessage = useCallback((text) => {
     if (!text || typeof text !== 'string' || text.trim().length === 0) return;
 
+    // Guard: only send if the socket is available
+    if (!socketRef.current) {
+      setError('Not connected to server');
+      return;
+    }
+
     setIsProcessing(true);
     setError(null);
 
     // Stop any in-progress TTS from the previous turn
     stopSpeaking();
 
-    if (socketRef.current) {
-      socketRef.current.send({ type: 'text', content: text.trim() });
-    }
+    socketRef.current.send({ type: 'text', content: text.trim() });
   }, []);
 
   /**

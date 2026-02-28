@@ -17,7 +17,7 @@
  *  - LearnerProgress: CEFR level badge, mastery bars, border update
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useConversation } from './hooks/useConversation';
 import { useKnowledgeGraph } from './hooks/useKnowledgeGraph';
 import VoiceRecorder from './components/VoiceRecorder';
@@ -51,6 +51,15 @@ function App() {
 
   // ── Transcript state for real-time STT display ────────────────────
   const [transcript, setTranscript] = useState({ status: 'idle', text: '' });
+  const prevIsProcessing = useRef(false);
+
+  // Reset transcript to idle when processing completes (turn response received)
+  useEffect(() => {
+    if (prevIsProcessing.current && !isProcessing) {
+      setTranscript({ status: 'idle', text: '' });
+    }
+    prevIsProcessing.current = isProcessing;
+  }, [isProcessing]);
 
   /**
    * Handle transcript updates from VoiceRecorder.
@@ -65,8 +74,8 @@ function App() {
   const handleReset = useCallback(async () => {
     await resetConversation();
     setTranscript({ status: 'idle', text: '' });
-    // Refetch graph to get cleared state
-    setTimeout(() => refetchGraph(), 100);
+    // Refetch graph after backend state is cleared
+    refetchGraph();
   }, [resetConversation, refetchGraph]);
 
   // ── Derive learner progress data from latest turn ─────────────────

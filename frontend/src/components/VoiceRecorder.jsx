@@ -21,7 +21,7 @@
  *  - connectionStatus (string) — WebSocket connection state
  */
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 
 /**
  * Convert an audio Blob to a base64 data string.
@@ -59,10 +59,25 @@ export default function VoiceRecorder({
 }) {
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef(null);
+  const streamRef = useRef(null);
   const chunksRef = useRef([]);
 
   const isConnected = connectionStatus === 'connected';
   const isDisabled = isProcessing || demoComplete || !isConnected;
+
+  // Cleanup: stop recording and release microphone on unmount
+  useEffect(() => {
+    return () => {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current = null;
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+    };
+  }, []);
 
   /**
    * Start recording audio from the user's microphone.
@@ -70,6 +85,7 @@ export default function VoiceRecorder({
   const startRecording = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
 
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
@@ -87,7 +103,10 @@ export default function VoiceRecorder({
 
       mediaRecorder.onstop = async () => {
         // Stop all tracks to release the microphone
-        stream.getTracks().forEach((track) => track.stop());
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((track) => track.stop());
+          streamRef.current = null;
+        }
 
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
         chunksRef.current = [];

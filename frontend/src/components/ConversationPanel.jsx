@@ -206,7 +206,7 @@ export default function ConversationPanel({
               text={turn.user_said}
               turnNumber={turn.turn_number}
             />
-            <TutorMessage response={turn.response} />
+            {turn.response && <TutorMessage response={turn.response} />}
           </div>
         ))}
 

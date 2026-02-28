@@ -252,18 +252,32 @@ export default function KnowledgeGraph({ nodes, links }) {
     // ── Node interactions: hover + drag ──────────────────────────────
 
     // Hover tooltip
+    /**
+     * Safely escape HTML entities to prevent XSS from backend-sourced strings.
+     */
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
     node
       .on('mouseenter', (event, d) => {
         const masteryPct = Math.round(d.mastery * 100);
         const color = masteryColorScale(d.mastery);
+        const safeLabel = escapeHtml(d.label);
+        const safeType = escapeHtml(d.type);
+        const safeLevel = escapeHtml(d.level);
         tooltip
           .html(`
             <div style="margin-bottom:4px">
-              <strong style="color:${color};font-size:14px">${d.label}</strong>
+              <strong style="color:${color};font-size:14px">${safeLabel}</strong>
             </div>
-            <div>Type: <span style="color:#6a9fff">${d.type}</span></div>
+            <div>Type: <span style="color:#6a9fff">${safeType}</span></div>
             <div>Mastery: <span style="color:${color}">${masteryPct}%</span></div>
-            <div>Level: <span style="color:#bb77ff">${d.level}</span></div>
+            <div>Level: <span style="color:#bb77ff">${safeLevel}</span></div>
           `)
           .style('opacity', 1);
 
@@ -310,7 +324,9 @@ export default function KnowledgeGraph({ nodes, links }) {
         if (!event.active) simulation.alphaTarget(0.3).restart();
         d.fx = d.x;
         d.fy = d.y;
-        d3.select(event.sourceEvent.target).style('cursor', 'grabbing');
+        if (event.sourceEvent?.target) {
+          d3.select(event.sourceEvent.target).style('cursor', 'grabbing');
+        }
       })
       .on('drag', (event, d) => {
         d.fx = event.x;
@@ -320,7 +336,9 @@ export default function KnowledgeGraph({ nodes, links }) {
         if (!event.active) simulation.alphaTarget(0);
         d.fx = null;
         d.fy = null;
-        d3.select(event.sourceEvent.target).style('cursor', 'grab');
+        if (event.sourceEvent?.target) {
+          d3.select(event.sourceEvent.target).style('cursor', 'grab');
+        }
       });
 
     node.call(drag);
