@@ -8,6 +8,8 @@ const COLORS = {
   edge: '#bfefff',
   glass: '#7de7ff',
   glow: '#39d9ff',
+  nose: '#ff4a4a',
+  noseDark: '#3b0b0b',
 };
 
 export function NavigationShip(props: {
@@ -54,6 +56,14 @@ export function NavigationShip(props: {
       roughness: 0.35,
     });
 
+    const nose = new THREE.MeshStandardMaterial({
+      color: COLORS.nose,
+      emissive: new THREE.Color(COLORS.noseDark),
+      emissiveIntensity: 0.08,
+      metalness: 0.25,
+      roughness: 0.55,
+    });
+
     const glass = new THREE.MeshStandardMaterial({
       color: COLORS.glass,
       emissive: new THREE.Color(COLORS.glow),
@@ -71,7 +81,7 @@ export function NavigationShip(props: {
       toneMapped: false,
     });
 
-    return { hull, hullDark, edge, glass, glow };
+    return { hull, hullDark, edge, glass, glow, nose };
   }, []);
 
   useFrame((state) => {
@@ -99,9 +109,13 @@ export function NavigationShip(props: {
           <cylinderGeometry args={[0.18, 0.2, 0.75, 18, 1, false]} />
         </mesh>
 
-        {/* Nose cone */}
-        <mesh position={[0, 0, 0.52]} rotation={[Math.PI / 2, 0, 0]} material={materials.edge}>
-          <coneGeometry args={[0.18, 0.34, 18]} />
+        {/* Nose cone (sharper + red for readability) */}
+        <mesh position={[0, 0, 0.58]} rotation={[Math.PI / 2, 0, 0]} material={materials.nose}>
+          <coneGeometry args={[0.15, 0.52, 20]} />
+        </mesh>
+        {/* Tiny tip to avoid a visually flat cap */}
+        <mesh position={[0, 0, 0.84]} rotation={[Math.PI / 2, 0, 0]} material={materials.nose}>
+          <coneGeometry args={[0.06, 0.18, 20]} />
         </mesh>
 
         {/* Mid ring accent */}
