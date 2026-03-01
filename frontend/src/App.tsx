@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { NebulaCanvas } from './components/NebulaCanvas';
 import { Dashboard } from './components/Dashboard';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -415,16 +416,17 @@ function BlueRingLogo() {
 }
 
 export default function App() {
-  const forceOnboarding = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return new URLSearchParams(window.location.search).get('onboarding') === '1';
-  }, []);
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  // /landing route → skip welcome, go straight to language selection (step 2)
+  const forceOnboarding = useMemo(() => {
+    return new URLSearchParams(location.search).get('onboarding') === '1';
+  }, [location.search]);
+
+  // /onboarding route → start at language selection (step 2)
   const isLandingRoute = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return window.location.pathname === '/landing';
-  }, []);
+    return location.pathname === '/onboarding' || location.pathname === '/landing';
+  }, [location.pathname]);
 
   const [state, setState] = useState<NebulaState>(INITIAL_STATE);
   const [isLoading, setIsLoading] = useState(false);
@@ -2083,6 +2085,7 @@ export default function App() {
                 // Onboarding complete
                 saveOnboarding(dailyMinutes, learnerLevel, targetLanguage);
                 setShowOnboarding(false);
+                navigate('/');
                 setMascotOverlay({ type: 'mission_intro', data: activeMissionSafe });
               }
             } else {
