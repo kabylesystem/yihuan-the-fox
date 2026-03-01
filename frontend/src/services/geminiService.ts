@@ -7,13 +7,42 @@
  * The mock data follows the same French learning i+1 progression as the backend.
  */
 
-import { NebulaState, Category } from '../types';
+import { NebulaState, Neuron, Synapse, Category, NodeKind, LinkKind } from '../types';
 import * as backend from './backendService';
+
+// Track whether TTS has been played for the latest response
+let _ttsPlayed = false;
+let _ttsFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+let _lastSpokenResponse = '';
 
 // Register TTS callback to play audio that arrives after the text response
 backend.onTTS((tts) => {
-  if (tts) playTTS(tts);
+  if (tts) {
+    _ttsPlayed = true;
+    if (_ttsFallbackTimer) {
+      clearTimeout(_ttsFallbackTimer);
+      _ttsFallbackTimer = null;
+    }
+    playTTS(tts);
+  }
 });
+
+/**
+ * Schedule a browser TTS fallback if backend TTS doesn't arrive within 4 seconds.
+ * Called after receiving the text response.
+ */
+function scheduleTTSFallback(spokenResponse: string) {
+  _ttsPlayed = false;
+  _lastSpokenResponse = spokenResponse;
+  if (_ttsFallbackTimer) clearTimeout(_ttsFallbackTimer);
+  _ttsFallbackTimer = setTimeout(() => {
+    if (!_ttsPlayed && _lastSpokenResponse) {
+      console.warn('TTS fallback: backend TTS did not arrive, using browser TTS');
+      speakWithBrowser(_lastSpokenResponse);
+    }
+    _ttsFallbackTimer = null;
+  }, 4000);
+}
 
 // ── TTS Audio Playback ──────────────────────────────────────────────────
 
@@ -29,19 +58,22 @@ function playTTS(tts: { mode: string; audio_base64?: string; text?: string; cont
       audio.onended = () => URL.revokeObjectURL(url);
       audio.play().catch((err) => {
         console.warn('Audio playback failed, falling back to browser TTS:', err);
-        if (tts.text) speakWithBrowser(tts.text);
+        speakWithBrowser(tts.text || _lastSpokenResponse);
       });
     } catch (err) {
       console.warn('Audio decode failed:', err);
-      if (tts.text) speakWithBrowser(tts.text);
+      speakWithBrowser(tts.text || _lastSpokenResponse);
     }
-  } else if (tts.mode === 'browser' && tts.text) {
-    speakWithBrowser(tts.text);
+  } else if (tts.mode === 'browser') {
+    speakWithBrowser(tts.text || _lastSpokenResponse);
   }
 }
 
 function speakWithBrowser(text: string) {
+  if (!text) return;
   if ('speechSynthesis' in window) {
+    // Cancel any ongoing speech first
+    window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'fr-FR';
     utterance.rate = 1.1;
@@ -66,7 +98,8 @@ const MOCK_TURNS = [
       new_elements: ['comment', "tu t'appelles"],
       reactivated_elements: ['bonjour'],
       user_level_assessment: 'A1',
-      border_update: 'You can greet someone. Next: introduce yourself by name.',
+      border_update: 'You can greet someone! Next: introduce yourself by name.',
+      user_vocabulary: ['bonjour'],
     },
   },
   {
@@ -83,7 +116,8 @@ const MOCK_TURNS = [
       new_elements: ['enchanté', 'tu habites', 'où'],
       reactivated_elements: ["tu t'appelles", 'bonjour'],
       user_level_assessment: 'A1',
-      border_update: 'You can introduce yourself. Next: talk about where you live.',
+      border_update: 'You can introduce yourself! Next: talk about where you live.',
+      user_vocabulary: ["je m'appelle", 'Marie'],
     },
   },
   {
@@ -99,9 +133,10 @@ const MOCK_TURNS = [
         { word: 'aimes', translation: 'like/love', part_of_speech: 'verb (aimer)' },
       ],
       new_elements: ["c'est", 'belle', 'ville', 'tu aimes'],
-      reactivated_elements: ['tu habites', 'où'],
+      reactivated_elements: ['bonjour'],
       user_level_assessment: 'A1+',
-      border_update: 'You can say where you live. Next: express preferences and opinions.',
+      border_update: 'You can say where you live! Level up to A1+!',
+      user_vocabulary: ["j'habite", 'Paris'],
     },
   },
   {
@@ -116,9 +151,10 @@ const MOCK_TURNS = [
         { word: 'faire', translation: 'to do', part_of_speech: 'verb (infinitive)' },
       ],
       new_elements: ["qu'est-ce que", 'faire'],
-      reactivated_elements: ['tu aimes', "j'habite", 'bonjour'],
+      reactivated_elements: ["j'habite", 'bonjour'],
       user_level_assessment: 'A1+',
-      border_update: 'You can express what you like. Next: describe activities and hobbies.',
+      border_update: 'You can express what you like! Next: describe activities.',
+      user_vocabulary: ["j'aime", 'beaucoup', 'Paris'],
     },
   },
   {
@@ -134,41 +170,42 @@ const MOCK_TURNS = [
         { word: 'magnifiques', translation: 'magnificent', part_of_speech: 'adjective' },
       ],
       new_elements: ['tu parles', 'déjà', 'magnifiques'],
-      reactivated_elements: ['tu aimes', 'faire', 'belle', 'ville'],
+      reactivated_elements: ["j'aime", 'Paris'],
       user_level_assessment: 'A2',
-      border_update: "You can describe activities and preferences with detail. You've reached A2!",
+      border_update: "Amazing! You've reached A2 — you can describe activities with detail!",
+      user_vocabulary: ['visiter', 'musées', 'manger', 'croissants'],
     },
   },
 ];
 
-// Graph data matching backend mock_data.py
+// Graph data — USER-SPOKEN words only (not AI tutor's words)
 const MOCK_GRAPH_NODES = [
-  { id: 'bonjour', label: 'bonjour', type: 'vocab', mastery: 1.0, level: 'A1', turn_introduced: 1 },
-  { id: 'comment', label: 'comment', type: 'vocab', mastery: 0.5, level: 'A1', turn_introduced: 1 },
-  { id: 'tu_tappelles', label: "tu t'appelles", type: 'sentence', mastery: 0.85, level: 'A1', turn_introduced: 1 },
-  { id: 'je_mappelle', label: "je m'appelle", type: 'sentence', mastery: 0.9, level: 'A1', turn_introduced: 2 },
-  { id: 'enchante', label: 'enchanté', type: 'vocab', mastery: 0.3, level: 'A1', turn_introduced: 2 },
-  { id: 'tu_habites', label: 'tu habites', type: 'sentence', mastery: 0.8, level: 'A1', turn_introduced: 2 },
-  { id: 'jhabite', label: "j'habite", type: 'sentence', mastery: 0.85, level: 'A1', turn_introduced: 3 },
-  { id: 'cest', label: "c'est", type: 'grammar', mastery: 0.3, level: 'A1+', turn_introduced: 3 },
-  { id: 'tu_aimes', label: 'tu aimes', type: 'sentence', mastery: 0.75, level: 'A1+', turn_introduced: 3 },
-  { id: 'faire', label: 'faire', type: 'vocab', mastery: 0.5, level: 'A1+', turn_introduced: 4 },
-  { id: 'visiter', label: 'visiter', type: 'vocab', mastery: 0.6, level: 'A2', turn_introduced: 5 },
-  { id: 'tu_parles', label: 'tu parles', type: 'sentence', mastery: 0.3, level: 'A2', turn_introduced: 5 },
+  { id: 'bonjour', label: 'bonjour', type: 'vocab', mastery: 0.9, level: 'A1', turn_introduced: 1 },
+  { id: 'je_mappelle', label: "je m'appelle", type: 'sentence', mastery: 0.8, level: 'A1', turn_introduced: 2 },
+  { id: 'marie', label: 'Marie', type: 'vocab', mastery: 0.7, level: 'A1', turn_introduced: 2 },
+  { id: 'jhabite', label: "j'habite", type: 'sentence', mastery: 0.7, level: 'A1+', turn_introduced: 3 },
+  { id: 'paris', label: 'Paris', type: 'vocab', mastery: 0.8, level: 'A1+', turn_introduced: 3 },
+  { id: 'jaime', label: "j'aime", type: 'sentence', mastery: 0.6, level: 'A1+', turn_introduced: 4 },
+  { id: 'beaucoup', label: 'beaucoup', type: 'vocab', mastery: 0.5, level: 'A1+', turn_introduced: 4 },
+  { id: 'visiter', label: 'visiter', type: 'vocab', mastery: 0.3, level: 'A2', turn_introduced: 5 },
+  { id: 'musees', label: 'musées', type: 'vocab', mastery: 0.3, level: 'A2', turn_introduced: 5 },
+  { id: 'manger', label: 'manger', type: 'vocab', mastery: 0.3, level: 'A2', turn_introduced: 5 },
+  { id: 'croissants', label: 'croissants', type: 'vocab', mastery: 0.3, level: 'A2', turn_introduced: 5 },
 ];
 
 const MOCK_GRAPH_LINKS = [
-  { source: 'bonjour', target: 'comment', relationship: 'semantic', turn_introduced: 1 },
-  { source: 'comment', target: 'tu_tappelles', relationship: 'prerequisite', turn_introduced: 1 },
-  { source: 'tu_tappelles', target: 'je_mappelle', relationship: 'conjugation', turn_introduced: 2 },
-  { source: 'je_mappelle', target: 'enchante', relationship: 'semantic', turn_introduced: 2 },
-  { source: 'bonjour', target: 'tu_habites', relationship: 'reactivation', turn_introduced: 2 },
-  { source: 'tu_habites', target: 'jhabite', relationship: 'conjugation', turn_introduced: 3 },
-  { source: 'jhabite', target: 'cest', relationship: 'semantic', turn_introduced: 3 },
-  { source: 'cest', target: 'tu_aimes', relationship: 'prerequisite', turn_introduced: 3 },
-  { source: 'tu_aimes', target: 'faire', relationship: 'prerequisite', turn_introduced: 4 },
-  { source: 'faire', target: 'visiter', relationship: 'semantic', turn_introduced: 5 },
-  { source: 'tu_aimes', target: 'tu_parles', relationship: 'reactivation', turn_introduced: 5 },
+  // Turn chain: learning progression
+  { source: 'bonjour', target: 'je_mappelle', relationship: 'prerequisite', turn_introduced: 2 },
+  { source: 'marie', target: 'jhabite', relationship: 'prerequisite', turn_introduced: 3 },
+  { source: 'paris', target: 'jaime', relationship: 'prerequisite', turn_introduced: 4 },
+  { source: 'beaucoup', target: 'visiter', relationship: 'prerequisite', turn_introduced: 5 },
+  // Semantic links
+  { source: 'jhabite', target: 'paris', relationship: 'semantic', turn_introduced: 3 },
+  { source: 'jaime', target: 'beaucoup', relationship: 'semantic', turn_introduced: 4 },
+  { source: 'visiter', target: 'musees', relationship: 'semantic', turn_introduced: 5 },
+  { source: 'manger', target: 'croissants', relationship: 'semantic', turn_introduced: 5 },
+  // Reactivation
+  { source: 'bonjour', target: 'jaime', relationship: 'reactivation', turn_introduced: 4 },
 ];
 
 let mockTurnIndex = 0;
@@ -181,17 +218,24 @@ const NODE_TYPE_MAP: Record<string, 'soma' | 'dendrite'> = {
   vocab: 'dendrite',
 };
 
+const NODE_KIND_MAP: Record<string, NodeKind> = {
+  sentence: 'sentence',
+  grammar: 'grammar',
+  vocab: 'vocab',
+};
+
 const CATEGORY_MAP: Record<string, Category> = {
   A1: 'daily',
   'A1+': 'social',
   A2: 'academic',
 };
 
-const SYNAPSE_TYPE_MAP: Record<string, 'logical' | 'derivation'> = {
-  prerequisite: 'logical',
-  conjugation: 'logical',
-  semantic: 'derivation',
-  reactivation: 'derivation',
+const LINK_KIND_MAP: Record<string, LinkKind> = {
+  prerequisite: 'prerequisite',
+  conjugation: 'conjugation',
+  semantic: 'semantic',
+  reactivation: 'reactivation',
+  mission: 'mission',
 };
 
 // ── Backend detection ────────────────────────────────────────────────────
@@ -224,6 +268,44 @@ export function getTotalMockTurns(): number {
   return MOCK_TURNS.length;
 }
 
+// ── Client-side link fallback ────────────────────────────────────────────
+
+/**
+ * Generate links between neurons when the backend returns 0 links.
+ * Connects neurons by proximity in mastery level and by sequential order.
+ */
+function generateFallbackLinks(neurons: Neuron[]): Synapse[] {
+  if (neurons.length < 2) return [];
+  const links: Synapse[] = [];
+  const seen = new Set<string>();
+
+  function addLink(src: string, tgt: string, kind: LinkKind) {
+    const key = [src, tgt].sort().join('-');
+    if (seen.has(key) || src === tgt) return;
+    seen.add(key);
+    links.push({ source: src, target: tgt, strength: 0.7, linkKind: kind, isNew: false });
+  }
+
+  // Sort by strength to create a progression chain
+  const sorted = [...neurons].sort((a, b) => a.strength - b.strength);
+
+  // Chain: connect each node to the next in mastery progression
+  for (let i = 0; i < sorted.length - 1; i++) {
+    addLink(sorted[i].id, sorted[i + 1].id, 'prerequisite');
+  }
+
+  // Connect nodes with similar mastery (within 0.2)
+  for (let i = 0; i < neurons.length; i++) {
+    for (let j = i + 1; j < neurons.length; j++) {
+      if (Math.abs(neurons[i].strength - neurons[j].strength) < 0.2) {
+        addLink(neurons[i].id, neurons[j].id, 'semantic');
+      }
+    }
+  }
+
+  return links;
+}
+
 // ── Core API ─────────────────────────────────────────────────────────────
 
 /**
@@ -246,19 +328,67 @@ export async function analyzeInput(
       const response = await backend.sendMessage(input, inputType);
 
       if (response.type === 'turn_response') {
+        // Merge top-level pedagogy/timings into the turn response payload for unified mapping
+        if (response.turn?.response) {
+          if (response.pedagogy) {
+            response.turn.response.quality_score = response.pedagogy.quality_score;
+            response.turn.response.validated_user_units = [
+              ...(response.pedagogy.accepted_units || []),
+              ...(response.pedagogy.rejected_units || []),
+            ];
+            response.turn.response.canonical_units = response.pedagogy.canonical_units || [];
+            response.turn.response.next_mission_hint = response.pedagogy.next_mission_hint || '';
+            response.turn.response.mission_progress = response.pedagogy.mission_progress || undefined;
+            response.turn.response.mission_tasks = response.pedagogy.mission_tasks || undefined;
+          }
+          if (response.timings) {
+            response.turn.response.latency_ms = response.timings;
+          }
+        }
         const updatedMessages = backend.mapTurnToMessages(response.turn, currentState.messages);
-        const { neurons, synapses } = await backend.fetchGraphData();
+        // Keep the tutor response snappy: don't block too long on graph refresh.
+        const graphData = await Promise.race([
+          backend.fetchGraphData(),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 800)),
+        ]);
+        const neurons = graphData?.neurons ?? currentState.neurons;
+        const synapses = graphData?.synapses ?? currentState.synapses;
 
         // Play TTS if included in the response (legacy).
         // With the new pipeline, TTS arrives as a separate 'tts' message
         // and is handled by the onTTS callback registered above.
         if (response.tts) {
           playTTS(response.tts);
+        } else {
+          // Schedule fallback: if backend TTS doesn't arrive within 4s, use browser TTS
+          const spokenResponse = response.turn?.response?.spoken_response;
+          if (spokenResponse) {
+            scheduleTTSFallback(spokenResponse);
+          }
+        }
+
+        // Diff: mark new neurons and synapses
+        const prevNodeIds = new Set(currentState.neurons.map(n => n.id));
+        const prevSynapseKeys = new Set(currentState.synapses.map(s => `${s.source}-${s.target}`));
+        const neuronsWithNew = (neurons.length > 0 ? neurons : currentState.neurons).map(n => ({
+          ...n,
+          isNew: !prevNodeIds.has(n.id),
+        }));
+        const synapsesWithNew = (synapses.length > 0 ? synapses : currentState.synapses).map(s => ({
+          ...s,
+          isNew: !prevSynapseKeys.has(`${s.source}-${s.target}`),
+        }));
+
+        // Fallback: generate links client-side if backend returned none
+        let finalSynapses: Synapse[] = synapsesWithNew;
+        if (finalSynapses.length === 0 && neuronsWithNew.length > 1) {
+          console.warn('Backend returned 0 links — generating fallback links client-side');
+          finalSynapses = generateFallbackLinks(neuronsWithNew);
         }
 
         return {
-          neurons: neurons.length > 0 ? neurons : currentState.neurons,
-          synapses: synapses.length > 0 ? synapses : currentState.synapses,
+          neurons: neuronsWithNew,
+          synapses: finalSynapses,
           messages: updatedMessages,
         };
       } else if (response.type === 'demo_complete') {
@@ -344,25 +474,30 @@ function processMockTurn(currentState: NebulaState, userInput?: string): NebulaS
   mockTurnIndex++;
 
   // Build neurons from graph nodes up to this turn
+  const prevNodeIds = new Set(currentState.neurons.map(n => n.id));
   const neurons = MOCK_GRAPH_NODES.filter((n) => n.turn_introduced <= turnNum).map((n) => ({
     id: n.id,
     label: n.label,
     type: NODE_TYPE_MAP[n.type] || ('dendrite' as const),
+    nodeKind: NODE_KIND_MAP[n.type] || ('vocab' as NodeKind),
     potential: n.mastery,
     strength: n.mastery,
     usageCount: Math.ceil(n.mastery * 5),
     category: CATEGORY_MAP[n.level] || ('daily' as Category),
     grammarDna: n.type === 'grammar' ? 'Grammar' : n.type === 'sentence' ? 'SVO' : 'Vocab',
     isShadow: n.mastery < 0.3,
+    isNew: !prevNodeIds.has(n.id),
     lastReviewed: Date.now(),
   }));
 
   // Build synapses from graph links up to this turn
+  const prevSynapseKeys = new Set(currentState.synapses.map(s => `${s.source}-${s.target}`));
   const synapses = MOCK_GRAPH_LINKS.filter((l) => l.turn_introduced <= turnNum).map((l) => ({
     source: l.source,
     target: l.target,
     strength: 0.7,
-    type: SYNAPSE_TYPE_MAP[l.relationship] || ('logical' as const),
+    linkKind: LINK_KIND_MAP[l.relationship] || ('semantic' as LinkKind),
+    isNew: !prevSynapseKeys.has(`${l.source}-${l.target}`),
   }));
 
   // Build messages
@@ -391,8 +526,16 @@ function processMockTurn(currentState: NebulaState, userInput?: string): NebulaS
       newElements: resp.new_elements,
       level: resp.user_level_assessment,
       progress: resp.border_update,
+      qualityScore: 0.78,
+      acceptedUnits: resp.user_vocabulary || [],
+      rejectedUnits: [],
+      missionHint: 'Mission A1-A2: Describe your favorite activity in one sentence.',
+      latencyMs: { stt: 0, llm: 0, total: 0 },
     },
   };
+
+  // Play the AI response via browser TTS in mock mode
+  speakWithBrowser(resp.spoken_response);
 
   return {
     neurons,

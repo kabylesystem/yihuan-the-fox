@@ -29,7 +29,7 @@ def _convert_webm_to_pcm(webm_data: bytes) -> bytes:
     pcm_chunks: list[bytes] = []
     for frame in container.decode(audio_stream):
         for resampled_frame in resampler.resample(frame):
-            pcm_chunks.append(resampled_frame.to_ndarray().tobytes())
+            pcm_chunks.append(bytes(resampled_frame.planes[0]))
 
     container.close()
     return b"".join(pcm_chunks)
@@ -55,8 +55,8 @@ class SpeechmaticsService:
         self._transcription_config = TranscriptionConfig(
             language="fr",
             enable_partials=False,
-            max_delay=5,
-            operating_point="enhanced",
+            max_delay=2,
+            operating_point="standard",
         )
 
     async def transcribe(self, audio_data: bytes, turn_number: int) -> str:
@@ -136,7 +136,7 @@ class SpeechmaticsService:
                         audio_settings,
                     ),
                 ),
-                timeout=15,
+                timeout=10,
             )
         except asyncio.TimeoutError:
             logger.error("Speechmatics transcription timed out (15s)")

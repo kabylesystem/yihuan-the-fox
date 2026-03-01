@@ -47,11 +47,37 @@ async def session_state() -> dict:
     return state.model_dump()
 
 
+@router.get("/diagnostics")
+async def session_diagnostics() -> dict:
+    """Return the last 20 turn diagnostics for latency/quality monitoring."""
+    state = get_session_state()
+    return {"items": state.diagnostics[-20:]}
+
+
 @router.post("/reset")
 async def session_reset() -> dict:
     """Reset session to initial state (turn 1, level A1, empty history).
 
+    Also resets the OpenAI conversation history so the AI starts fresh.
     Returns confirmation with the reset turn number.
     """
     reset_session_state()
+
+    # Reset OpenAI conversation history
+    from backend.routes.conversation import _openai_service
+    _openai_service.reset()
+
     return {"status": "reset", "turn": 1}
+
+
+@router.post("/reset-hard")
+async def session_reset_hard() -> dict:
+    """Hard reset: clear session + model context + memory cache."""
+    reset_session_state()
+
+    from backend.routes.conversation import _openai_service, _backboard_service
+
+    _openai_service.reset()
+    await _backboard_service.reset()
+
+    return {"status": "reset-hard", "turn": 1}

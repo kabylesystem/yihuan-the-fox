@@ -17,6 +17,46 @@ class VocabularyItem(BaseModel):
     part_of_speech: str = Field(..., description="Grammatical category (e.g. noun, verb)")
 
 
+class ResponseGraphLink(BaseModel):
+    """An explicit graph link returned by the AI tutor."""
+
+    source: str = Field(..., description="Source word/phrase")
+    target: str = Field(..., description="Target word/phrase")
+    type: str = Field(..., description="Relationship type: semantic, conjugation, prerequisite, correction")
+
+
+class ValidatedUnit(BaseModel):
+    """A validated learning unit extracted from the user's utterance."""
+
+    text: str = Field(..., description="Unit text (word/chunk/pattern)")
+    kind: str = Field(..., description="Unit kind: chunk, word, or pattern")
+    source: str = Field(..., description="Source origin: as_said or corrected")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Validation confidence")
+    is_accepted: bool = Field(..., description="Whether this unit is accepted into the graph")
+    reject_reason: Optional[str] = Field(
+        default=None, description="Optional rejection reason when is_accepted is false"
+    )
+    canonical_key: str = Field(
+        default="",
+        description="Canonical grouping key used to deduplicate overlapping concepts",
+    )
+    mission_relevance: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Relevance score to current speaking mission",
+    )
+
+
+class CorrectionItem(BaseModel):
+    """A concise correction item for user feedback."""
+
+    as_said: str = Field(..., description="Original phrase as spoken by user")
+    corrected: str = Field(..., description="Corrected phrase")
+    rule: str = Field(..., description="Short grammar rule explanation")
+    severity: str = Field(..., description="Correction severity: minor or major")
+
+
 class TutorResponse(BaseModel):
     """Full pedagogical response from the AI tutor for a single turn.
 
@@ -26,6 +66,10 @@ class TutorResponse(BaseModel):
 
     spoken_response: str = Field(..., description="Tutor's spoken French response")
     translation_hint: str = Field(..., description="English translation of the response")
+    corrected_form: str = Field(
+        default="",
+        description="Corrected version of user's sentence (empty if no errors)",
+    )
     vocabulary_breakdown: list[VocabularyItem] = Field(
         default_factory=list,
         description="Detailed breakdown of key vocabulary in the response",
@@ -47,6 +91,40 @@ class TutorResponse(BaseModel):
     mastery_scores: dict[str, float] = Field(
         default_factory=dict,
         description="Mastery scores (0.0-1.0) for tracked vocabulary/structures",
+    )
+    graph_links: list[ResponseGraphLink] = Field(
+        default_factory=list,
+        description="Explicit relationships between concepts for the knowledge graph",
+    )
+    user_vocabulary: list[str] = Field(
+        default_factory=list,
+        description="Key vocabulary extracted from the USER's input (not the tutor's response)",
+    )
+    validated_user_units: list[ValidatedUnit] = Field(
+        default_factory=list,
+        description="Validated user units used as source of truth for graph nodes",
+    )
+    corrections: list[CorrectionItem] = Field(
+        default_factory=list,
+        description="Concise correction feedback items",
+    )
+    quality_score: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Quality score for this turn (grammar + relevance)",
+    )
+    latency_ms: dict[str, int] = Field(
+        default_factory=dict,
+        description="Latency breakdown in milliseconds: stt, llm, total",
+    )
+    next_mission_hint: str = Field(
+        default="",
+        description="Suggested next short speaking mission",
+    )
+    mission_progress: dict[str, int] = Field(
+        default_factory=dict,
+        description="Mission progress counters: done, total, percent",
     )
 
 
@@ -82,6 +160,18 @@ class GraphLink(BaseModel):
         ...,
         description="Relationship type: prerequisite, semantic, reactivation, or conjugation",
     )
+    reason: str = Field(
+        default="",
+        description="Human-readable reason explaining why this link exists",
+    )
+    reason_detail: str = Field(
+        default="",
+        description="Detailed explanation for this relationship",
+    )
+    evidence_units: list[str] = Field(
+        default_factory=list,
+        description="One or two canonical evidence units supporting this link",
+    )
     turn_introduced: int = Field(
         ..., ge=1, description="Turn number when this link first appears"
     )
@@ -103,4 +193,22 @@ class SessionState(BaseModel):
     demo_complete: bool = Field(
         default=False,
         description="Whether all mock turns have been exhausted",
+    )
+    mission_state: dict = Field(
+        default_factory=lambda: {
+            "current_hint": "Mission A1-A2: Introduce yourself in two short sentences.",
+            "tasks": [
+                {"id": "quality", "label": "Reach at least 70% quality", "done": False},
+                {"id": "units", "label": "Validate at least 2 useful units", "done": False},
+                {"id": "turns", "label": "Complete 2 turns in this session", "done": False},
+            ],
+            "done": 0,
+            "total": 3,
+            "percent": 0,
+        },
+        description="Current mission state and progress",
+    )
+    diagnostics: list[dict] = Field(
+        default_factory=list,
+        description="Last conversation turn diagnostics (timings and quality)",
     )

@@ -1,10 +1,13 @@
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
 # Load .env from project root (one level up from backend/)
 _env_path = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(_env_path)
+# In pytest, keep config deterministic from env vars set by tests.
+if "pytest" not in sys.modules:
+    load_dotenv(_env_path)
 
 # Mock Mode Toggle
 # When True, all services return pre-scripted data without API calls

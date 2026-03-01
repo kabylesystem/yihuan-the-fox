@@ -8,7 +8,7 @@
  * Handles status messages from the backend during processing.
  */
 
-import { Neuron, Synapse, Message, Category } from '../types';
+import { Neuron, Synapse, Message, Category, NodeKind, LinkKind } from '../types';
 
 // ── Configuration ────────────────────────────────────────────────────────
 
@@ -27,47 +27,83 @@ function getWsUrl(): string {
 
 // ── Data Mapping: Backend → Frontend types ───────────────────────────────
 
+function normalizeToken(s: string): string {
+  return (s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9' ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function inferCategoryFromLabel(label: string, nodeKind: NodeKind): Category {
+  const t = normalizeToken(label);
+  if (!t) return 'other';
+  if (nodeKind === 'grammar') return 'academic';
+
+  const social = ['bonjour', 'salut', 'ca va', 'comment ca va', 'merci', 'au revoir', "je m'appelle", 'mon prenom'];
+  const travel = ['hotel', 'gare', 'aeroport', 'voyage', 'train', 'metro', 'bus', 'avion', 'ticket', 'paris', 'ville', 'pays'];
+  const work = ['travail', 'bureau', 'reunion', 'projet', 'client', 'manager', 'job', 'metier', 'collegue', 'entreprise'];
+  const coding = ['code', 'coder', 'bug', 'api', 'javascript', 'python', 'git', 'frontend', 'backend', 'devops'];
+  const academic = ['ecole', 'universite', 'professeur', 'classe', 'devoir', 'examen', 'etudier', 'cours', 'grammaire'];
+  const daily = ['manger', 'boire', 'dormir', 'famille', 'maison', 'cuisine', 'sport', "j'aime", "j'ai envie", "j'habite", "je suis"];
+
+  const hasAny = (list: string[]) => list.some((w) => t.includes(w));
+  if (hasAny(coding)) return 'coding';
+  if (hasAny(work)) return 'work';
+  if (hasAny(travel)) return 'travel';
+  if (hasAny(academic)) return 'academic';
+  if (hasAny(social)) return 'social';
+  if (hasAny(daily)) return 'daily';
+  return 'other';
+}
+
 function mapNodeToNeuron(node: any): Neuron {
   const typeMap: Record<string, 'soma' | 'dendrite'> = {
     sentence: 'soma',
     grammar: 'soma',
     vocab: 'dendrite',
   };
-  const categoryFromLevel: Record<string, Category> = {
-    A1: 'daily',
-    'A1+': 'social',
-    A2: 'academic',
-    B1: 'work',
-    B2: 'travel',
+  const kindMap: Record<string, NodeKind> = {
+    sentence: 'sentence',
+    grammar: 'grammar',
+    vocab: 'vocab',
   };
+  const kind = kindMap[node.type] || 'vocab';
 
   return {
     id: node.id,
     label: node.label,
     type: typeMap[node.type] || 'dendrite',
+    nodeKind: kind,
     potential: node.mastery,
     strength: node.mastery,
-    usageCount: Math.ceil(node.mastery * 5),
-    category: categoryFromLevel[node.level] || 'daily',
+    usageCount: Math.max(1, Math.ceil(node.mastery * 8)),
+    category: inferCategoryFromLabel(node.label, kind),
     grammarDna: node.type === 'grammar' ? 'Grammar' : node.type === 'sentence' ? 'SVO' : 'Vocab',
     isShadow: node.mastery < 0.3,
-    lastReviewed: Date.now(),
+    lastReviewed: Date.now() - Math.max(0, (1 - node.mastery) * 1000 * 60 * 60 * 6),
   };
 }
 
 function mapLinkToSynapse(link: any): Synapse {
-  const typeMap: Record<string, 'logical' | 'derivation'> = {
-    prerequisite: 'logical',
-    conjugation: 'logical',
-    semantic: 'derivation',
-    reactivation: 'derivation',
+  const kindMap: Record<string, LinkKind> = {
+    prerequisite: 'prerequisite',
+    conjugation: 'conjugation',
+    semantic: 'semantic',
+    reactivation: 'reactivation',
+    mission: 'mission',
   };
 
   return {
     source: link.source,
     target: link.target,
     strength: 0.7,
-    type: typeMap[link.relationship] || 'logical',
+    linkKind: kindMap[link.relationship] || 'semantic',
+    reason: link.reason || link.relationship || 'semantic',
+    reasonDetail: link.reason_detail || '',
+    evidenceUnits: Array.isArray(link.evidence_units) ? link.evidence_units : [],
   };
 }
 
@@ -87,18 +123,30 @@ export function mapTurnToMessages(turn: any, existingMessages: Message[]): Messa
     role: 'ai',
     text: resp.spoken_response,
     timestamp: ts + 1,
+    correctedForm: resp.corrected_form || '',
     analysis: {
-      vocabulary: (resp.vocabulary_breakdown || []).map((v: any) => ({
-        word: v.word,
-        translation: v.translation,
-        type: v.part_of_speech,
-        isNew: (resp.new_elements || []).some(
-          (e: string) => v.word.includes(e) || e.includes(v.word)
-        ),
-      })),
+      vocabulary: ((resp.validated_user_units || []).filter((u: any) => u?.is_accepted)).map((u: any) => {
+        const matched = (resp.vocabulary_breakdown || []).find((v: any) => (v?.word || '').toLowerCase() === (u?.text || '').toLowerCase());
+        return {
+          word: u.text,
+          translation: matched?.translation || '',
+          type: u.kind || 'unit',
+          isNew: true,
+        };
+      }),
       newElements: resp.new_elements || [],
       level: resp.user_level_assessment || 'A1',
       progress: resp.border_update || '',
+      qualityScore: typeof resp.quality_score === 'number' ? resp.quality_score : undefined,
+      acceptedUnits: (resp.validated_user_units || []).filter((u: any) => u?.is_accepted).map((u: any) => u.text),
+      rejectedUnits: (resp.validated_user_units || []).filter((u: any) => !u?.is_accepted).map((u: any) => u.text),
+      canonicalUnits: (resp.validated_user_units || [])
+        .filter((u: any) => u?.is_accepted)
+        .map((u: any) => ({ text: u.text, kind: u.kind, canonicalKey: u.canonical_key || '' })),
+      missionHint: resp.next_mission_hint || '',
+      missionProgress: resp.mission_progress || undefined,
+      missionTasks: resp.mission_tasks || undefined,
+      latencyMs: resp.latency_ms || undefined,
     },
   };
 
@@ -112,6 +160,8 @@ export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 're
 type PendingResolve = {
   resolve: (data: any) => void;
   reject: (err: Error) => void;
+  requestId: number;
+  timeoutId: ReturnType<typeof setTimeout> | null;
 };
 
 let ws: WebSocket | null = null;
@@ -121,6 +171,7 @@ let statusCallback: ((s: ConnectionStatus) => void) | null = null;
 let statusStepCallback: ((step: string) => void) | null = null;
 let ttsCallback: ((tts: any) => void) | null = null;
 let pendingRequest: PendingResolve | null = null;
+let requestSeq = 0;
 
 const MAX_RECONNECTS = 5;
 
@@ -210,12 +261,14 @@ export function connect(): Promise<boolean> {
 
         // All other messages resolve the pending request
         if (pendingRequest) {
-          const { resolve: res } = pendingRequest;
+          const { resolve: res, timeoutId } = pendingRequest;
+          if (timeoutId) clearTimeout(timeoutId);
           pendingRequest = null;
           res(data);
         }
       } catch {
         if (pendingRequest) {
+          if (pendingRequest.timeoutId) clearTimeout(pendingRequest.timeoutId);
           pendingRequest.reject(new Error('Failed to parse server response'));
           pendingRequest = null;
         }
@@ -226,6 +279,7 @@ export function connect(): Promise<boolean> {
       clearTimeout(timeout);
       ws = null;
       if (pendingRequest) {
+        if (pendingRequest.timeoutId) clearTimeout(pendingRequest.timeoutId);
         pendingRequest.reject(new Error('WebSocket closed'));
         pendingRequest = null;
       }
@@ -271,16 +325,19 @@ export async function sendMessage(content: string, type: 'text' | 'audio' = 'tex
       reject(new Error('Not connected'));
       return;
     }
-    pendingRequest = { resolve, reject };
+    const requestId = ++requestSeq;
+    const timeoutMs = type === 'audio' ? 60000 : 30000;
+    pendingRequest = { resolve, reject, requestId, timeoutId: null };
     ws.send(JSON.stringify({ type, content }));
 
-    // Timeout after 20s
-    setTimeout(() => {
-      if (pendingRequest) {
+    // Per-request timeout guarded by requestId to avoid old timers cancelling new requests.
+    const timeoutId = setTimeout(() => {
+      if (pendingRequest && pendingRequest.requestId === requestId) {
         pendingRequest.reject(new Error('Request timeout — backend took too long'));
         pendingRequest = null;
       }
-    }, 20000);
+    }, timeoutMs);
+    pendingRequest.timeoutId = timeoutId;
   });
 }
 
@@ -323,6 +380,16 @@ export async function resetSession(): Promise<boolean> {
   const base = getBaseUrl();
   try {
     const res = await fetch(`${base}/api/session/reset`, { method: 'POST' });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function hardResetSession(): Promise<boolean> {
+  const base = getBaseUrl();
+  try {
+    const res = await fetch(`${base}/api/session/reset-hard`, { method: 'POST' });
     return res.ok;
   } catch {
     return false;

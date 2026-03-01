@@ -40,6 +40,7 @@ MOCK_CONVERSATION = [
                 "comment": 0.3,
                 "tu t'appelles": 0.2,
             },
+            "user_vocabulary": ["bonjour"],
         },
     },
     {
@@ -66,6 +67,7 @@ MOCK_CONVERSATION = [
                 "tu habites": 0.2,
                 "où": 0.3,
             },
+            "user_vocabulary": ["je m'appelle"],
         },
     },
     {
@@ -96,6 +98,7 @@ MOCK_CONVERSATION = [
                 "ville": 0.3,
                 "tu aimes": 0.2,
             },
+            "user_vocabulary": ["j'habite", "Paris"],
         },
     },
     {
@@ -125,6 +128,7 @@ MOCK_CONVERSATION = [
                 "qu'est-ce que": 0.25,
                 "faire": 0.2,
             },
+            "user_vocabulary": ["j'aime", "beaucoup"],
         },
     },
     {
@@ -157,6 +161,7 @@ MOCK_CONVERSATION = [
                 "tu parles": 0.3,
                 "magnifiques": 0.25,
             },
+            "user_vocabulary": ["visiter", "musées", "manger", "croissants"],
         },
     },
 ]
@@ -175,18 +180,24 @@ MOCK_CONVERSATION = [
 #   - turn_introduced: which turn this node first appears (for progressive reveal)
 
 MOCK_GRAPH_NODES = [
+    # User-spoken words only (from user_vocabulary + reactivated_elements)
+    # Turn 1: user said "bonjour"
     {"id": "bonjour", "label": "bonjour", "type": "vocab", "mastery": 1.0, "level": "A1", "turn_introduced": 1},
-    {"id": "comment", "label": "comment", "type": "vocab", "mastery": 0.5, "level": "A1", "turn_introduced": 1},
-    {"id": "tu_tappelles", "label": "tu t'appelles", "type": "sentence", "mastery": 0.85, "level": "A1", "turn_introduced": 1},
+    # Turn 2: user said "je m'appelle"; reactivated: tu t'appelles, bonjour
     {"id": "je_mappelle", "label": "je m'appelle", "type": "sentence", "mastery": 0.9, "level": "A1", "turn_introduced": 2},
-    {"id": "enchante", "label": "enchanté", "type": "vocab", "mastery": 0.3, "level": "A1", "turn_introduced": 2},
-    {"id": "tu_habites", "label": "tu habites", "type": "sentence", "mastery": 0.8, "level": "A1", "turn_introduced": 2},
+    {"id": "tu_tappelles", "label": "tu t'appelles", "type": "sentence", "mastery": 0.85, "level": "A1", "turn_introduced": 2},
+    # Turn 3: user said "j'habite", "Paris"; reactivated: tu habites, où
     {"id": "jhabite", "label": "j'habite", "type": "sentence", "mastery": 0.85, "level": "A1", "turn_introduced": 3},
-    {"id": "cest", "label": "c'est", "type": "grammar", "mastery": 0.3, "level": "A1+", "turn_introduced": 3},
-    {"id": "tu_aimes", "label": "tu aimes", "type": "sentence", "mastery": 0.75, "level": "A1+", "turn_introduced": 3},
-    {"id": "faire", "label": "faire", "type": "vocab", "mastery": 0.5, "level": "A1+", "turn_introduced": 4},
+    {"id": "paris", "label": "Paris", "type": "vocab", "mastery": 0.7, "level": "A1", "turn_introduced": 3},
+    # Turn 4: user said "j'aime", "beaucoup"; reactivated: tu aimes, j'habite, bonjour
+    {"id": "jaime", "label": "j'aime", "type": "sentence", "mastery": 0.8, "level": "A1+", "turn_introduced": 4},
+    {"id": "beaucoup", "label": "beaucoup", "type": "vocab", "mastery": 0.5, "level": "A1+", "turn_introduced": 4},
+    {"id": "tu_aimes", "label": "tu aimes", "type": "sentence", "mastery": 0.75, "level": "A1+", "turn_introduced": 4},
+    # Turn 5: user said "visiter", "musées", "manger", "croissants"; reactivated: tu aimes, faire, belle, ville
     {"id": "visiter", "label": "visiter", "type": "vocab", "mastery": 0.6, "level": "A2", "turn_introduced": 5},
-    {"id": "tu_parles", "label": "tu parles", "type": "sentence", "mastery": 0.3, "level": "A2", "turn_introduced": 5},
+    {"id": "musees", "label": "musées", "type": "vocab", "mastery": 0.5, "level": "A2", "turn_introduced": 5},
+    {"id": "manger", "label": "manger", "type": "vocab", "mastery": 0.5, "level": "A2", "turn_introduced": 5},
+    {"id": "croissants", "label": "croissants", "type": "vocab", "mastery": 0.4, "level": "A2", "turn_introduced": 5},
 ]
 
 
@@ -201,20 +212,24 @@ MOCK_GRAPH_NODES = [
 #   - turn_introduced: which turn this link first appears (for progressive reveal)
 
 MOCK_GRAPH_LINKS = [
-    # Greeting cluster (Turn 1)
-    {"source": "bonjour", "target": "comment", "relationship": "semantic", "turn_introduced": 1},
-    {"source": "comment", "target": "tu_tappelles", "relationship": "prerequisite", "turn_introduced": 1},
-    # Introduction cluster (Turn 2)
+    # Turn 1→2: learning progression chain
+    {"source": "bonjour", "target": "je_mappelle", "relationship": "prerequisite", "turn_introduced": 2},
+    # Turn 2: reactivated tu t'appelles links to user's je m'appelle (conjugation pair)
     {"source": "tu_tappelles", "target": "je_mappelle", "relationship": "conjugation", "turn_introduced": 2},
-    {"source": "je_mappelle", "target": "enchante", "relationship": "semantic", "turn_introduced": 2},
-    {"source": "bonjour", "target": "tu_habites", "relationship": "reactivation", "turn_introduced": 2},
-    # Location cluster (Turn 3)
-    {"source": "tu_habites", "target": "jhabite", "relationship": "conjugation", "turn_introduced": 3},
-    {"source": "jhabite", "target": "cest", "relationship": "semantic", "turn_introduced": 3},
-    {"source": "cest", "target": "tu_aimes", "relationship": "prerequisite", "turn_introduced": 3},
-    # Activities cluster (Turn 4)
-    {"source": "tu_aimes", "target": "faire", "relationship": "prerequisite", "turn_introduced": 4},
-    # Advanced cluster (Turn 5)
-    {"source": "faire", "target": "visiter", "relationship": "semantic", "turn_introduced": 5},
-    {"source": "tu_aimes", "target": "tu_parles", "relationship": "reactivation", "turn_introduced": 5},
+    # Turn 2→3: learning progression chain
+    {"source": "je_mappelle", "target": "jhabite", "relationship": "prerequisite", "turn_introduced": 3},
+    # Turn 3: where-question semantic context
+    {"source": "je_mappelle", "target": "paris", "relationship": "semantic", "turn_introduced": 3},
+    # Turn 3: j'habite → Paris (semantic — location)
+    {"source": "jhabite", "target": "paris", "relationship": "semantic", "turn_introduced": 3},
+    # Turn 3→4: learning progression chain
+    {"source": "paris", "target": "jaime", "relationship": "prerequisite", "turn_introduced": 4},
+    # Turn 4: tu aimes (reactivated) ↔ j'aime (user said) — conjugation pair
+    {"source": "tu_aimes", "target": "jaime", "relationship": "conjugation", "turn_introduced": 4},
+    # Turn 4→5: learning progression chain
+    {"source": "beaucoup", "target": "visiter", "relationship": "prerequisite", "turn_introduced": 5},
+    # Turn 5: semantic pairs
+    {"source": "visiter", "target": "musees", "relationship": "semantic", "turn_introduced": 5},
+    {"source": "manger", "target": "croissants", "relationship": "semantic", "turn_introduced": 5},
+    {"source": "jaime", "target": "paris", "relationship": "semantic", "turn_introduced": 5},
 ]
