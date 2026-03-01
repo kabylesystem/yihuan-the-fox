@@ -2,10 +2,11 @@
 Text-to-Speech Service — multi-provider with automatic fallback.
 
 Priority:
-1. Speechmatics TTS (English only — hackathon requirement)
-2. Edge TTS (Microsoft) — free, all languages, neural quality, ~150ms
-3. OpenAI TTS (nova) — all languages but rate-limited (3 RPM free tier)
-4. Browser SpeechSynthesis — last resort
+1. Speechmatics TTS (English only)
+2. gTTS (Google TTS) — free, all languages, works on Railway, ~300ms
+3. Edge TTS (Microsoft) — free, neural quality, may be blocked on some hosts
+4. OpenAI TTS (nova) — rate-limited (200 RPD free tier)
+5. Browser SpeechSynthesis — last resort
 """
 
 import asyncio
@@ -38,16 +39,24 @@ _EDGE_VOICE_MAP: dict[str, str] = {
     "en": "en-US-JennyNeural",
 }
 
+# gTTS language codes
+_GTTS_LANG_MAP: dict[str, str] = {
+    "fr": "fr", "es": "es", "de": "de", "it": "it", "pt": "pt",
+    "ja": "ja", "ko": "ko", "zh": "zh-TW", "ar": "ar", "ru": "ru",
+    "nl": "nl", "tr": "tr", "hi": "hi", "sv": "sv", "pl": "pl",
+    "en": "en",
+}
+
 # Speechmatics TTS endpoint + voices (English only)
 _SPEECHMATICS_TTS_URL = "https://preview.tts.speechmatics.com/generate/{voice}"
 _SPEECHMATICS_VOICES = {
-    "en": "sarah",  # English Female UK
-    "en-us": "megan",  # English Female US
+    "en": "sarah",
+    "en-us": "megan",
 }
 
 
 class TTSService:
-    """TTS service: Speechmatics (EN) → Edge TTS (all) → OpenAI (fallback) → browser."""
+    """TTS service: Speechmatics (EN) → gTTS → Edge TTS → OpenAI → browser."""
 
     def __init__(self):
         self.mock_mode = MOCK_MODE
@@ -85,23 +94,68 @@ class TTSService:
             if result:
                 return result
 
-        # ── 2. Edge TTS (free, all languages, great quality) ─────────
+        # ── 2. gTTS (Google TTS) — free, reliable on Railway ─────────
+        result = await self._gtts_synthesize(text)
+        if result:
+            return result
+
+        # ── 3. Edge TTS (may be blocked on Railway) ───────────────────
         result = await self._edge_synthesize(text)
         if result:
             return result
 
-        # ── 3. OpenAI TTS (fallback, rate-limited) ───────────────────
+        # ── 4. OpenAI TTS (rate-limited) ─────────────────────────────
         if time.perf_counter() >= self._openai_cooldown_until:
             result = await self._openai_synthesize(text)
             if result:
                 return result
 
-        # ── 4. Browser fallback ───────────────────────────────────────
+        # ── 5. Browser fallback ───────────────────────────────────────
         logger.warning("All TTS providers failed → browser fallback")
         return {"mode": "browser", "text": text}
 
+    async def _gtts_synthesize(self, text: str) -> dict | None:
+        """Google TTS (gTTS) — free, all languages, works on Railway."""
+        t0 = time.perf_counter()
+        try:
+            import io
+            from gtts import gTTS
+
+            lang = _GTTS_LANG_MAP.get(self._language, "fr")
+            loop = asyncio.get_event_loop()
+
+            def _generate():
+                tts = gTTS(text=text, lang=lang, slow=False)
+                buf = io.BytesIO()
+                tts.write_to_fp(buf)
+                buf.seek(0)
+                return buf.read()
+
+            audio_bytes = await asyncio.wait_for(
+                loop.run_in_executor(None, _generate),
+                timeout=8,
+            )
+            if not audio_bytes:
+                return None
+
+            audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+            tts_ms = int((time.perf_counter() - t0) * 1000)
+            logger.info("gTTS: %dms, %d chars, lang=%s", tts_ms, len(text), lang)
+            return {
+                "mode": "audio",
+                "audio_base64": audio_base64,
+                "content_type": "audio/mpeg",
+                "text": text,
+            }
+        except asyncio.TimeoutError:
+            logger.warning("gTTS timed out (8s)")
+            return None
+        except Exception as exc:
+            logger.warning("gTTS failed: %s", exc)
+            return None
+
     async def _speechmatics_synthesize(self, text: str) -> dict | None:
-        """Speechmatics TTS — English only, hackathon provider."""
+        """Speechmatics TTS — English only."""
         t0 = time.perf_counter()
         try:
             import aiohttp
@@ -119,7 +173,7 @@ class TTSService:
 
             audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
             tts_ms = int((time.perf_counter() - t0) * 1000)
-            logger.info("Speechmatics TTS: %dms, %d chars, voice=%s", tts_ms, len(text), voice)
+            logger.info("Speechmatics TTS: %dms, %d chars", tts_ms, len(text))
             return {
                 "mode": "audio",
                 "audio_base64": audio_base64,
@@ -135,26 +189,32 @@ class TTSService:
         t0 = time.perf_counter()
         try:
             import edge_tts
-            voice = _EDGE_VOICE_MAP.get(self._language, "en-US-JennyNeural")
-            # +15% speed for most languages; tonal languages (zh/ja/ko) +8% for clarity
-            rate = "+8%" if self._language in ("zh", "ja", "ko") else "+15%"
-            communicate = edge_tts.Communicate(text, voice, rate=rate)
-            audio_chunks: list[bytes] = []
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    audio_chunks.append(chunk["data"])
-            audio_bytes = b"".join(audio_chunks)
+
+            async def _stream():
+                voice = _EDGE_VOICE_MAP.get(self._language, "en-US-JennyNeural")
+                rate = "+8%" if self._language in ("zh", "ja", "ko") else "+15%"
+                communicate = edge_tts.Communicate(text, voice, rate=rate)
+                chunks: list[bytes] = []
+                async for chunk in communicate.stream():
+                    if chunk["type"] == "audio":
+                        chunks.append(chunk["data"])
+                return b"".join(chunks)
+
+            audio_bytes = await asyncio.wait_for(_stream(), timeout=5)
             if not audio_bytes:
                 return None
             audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
             tts_ms = int((time.perf_counter() - t0) * 1000)
-            logger.info("Edge TTS: %dms, %d chars, voice=%s", tts_ms, len(text), voice)
+            logger.info("Edge TTS: %dms, %d chars", tts_ms, len(text))
             return {
                 "mode": "audio",
                 "audio_base64": audio_base64,
                 "content_type": "audio/mpeg",
                 "text": text,
             }
+        except asyncio.TimeoutError:
+            logger.warning("Edge TTS timed out (5s)")
+            return None
         except Exception as exc:
             logger.warning("Edge TTS failed: %s", exc)
             return None
@@ -176,7 +236,7 @@ class TTSService:
             audio_bytes = response.content
             audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
             tts_ms = int((time.perf_counter() - t0) * 1000)
-            logger.info("OpenAI TTS: %dms, %d chars → %d bytes", tts_ms, len(text), len(audio_bytes))
+            logger.info("OpenAI TTS: %dms, %d chars", tts_ms, len(text))
             return {
                 "mode": "audio",
                 "audio_base64": audio_base64,
@@ -188,6 +248,8 @@ class TTSService:
             return None
         except Exception as exc:
             logger.warning("OpenAI TTS failed: %s", exc)
-            if "429" in str(exc) or "rate_limit" in str(exc).lower():
-                self._openai_cooldown_until = time.perf_counter() + 120
+            if "per day" in str(exc).lower() or "rpd" in str(exc).lower():
+                self._openai_cooldown_until = time.perf_counter() + 86400
+            elif "429" in str(exc) or "rate_limit" in str(exc).lower():
+                self._openai_cooldown_until = time.perf_counter() + 30
             return None
