@@ -972,13 +972,13 @@ export default function App() {
         <div className="absolute inset-0 pointer-events-none opacity-15 mix-blend-screen" style={{ backgroundImage: 'radial-gradient(rgba(100,140,255,0.08) 0.5px, transparent 0.5px), radial-gradient(rgba(80,120,200,0.05) 0.4px, transparent 0.4px)', backgroundSize: '3px 3px, 6px 6px', backgroundPosition: '0 0, 1px 2px' }} />
         {/* ── Header ─────────────────────────────────────────────── */}
         <div className="relative">
-          <div className="flex flex-col gap-3 pointer-events-auto items-start max-h-[calc(100vh-14rem)] overflow-y-auto overflow-x-hidden scrollbar-hide">
+          <div className="flex flex-col gap-3 pointer-events-none items-start max-h-[calc(100vh-10rem)] overflow-y-auto overflow-x-hidden scrollbar-hide">
             {/* Mission panel */}
             <motion.div
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.15 }}
-              className="self-start ml-6 relative overflow-hidden bg-white/[0.07] backdrop-blur-xl border border-white/[0.14] p-5 rounded-[28px] w-[500px] max-w-[calc(100vw-3rem)] shadow-[0_16px_50px_rgba(0,0,0,0.35)]"
+              className="pointer-events-auto self-start ml-6 relative overflow-hidden bg-white/[0.07] backdrop-blur-xl border border-white/[0.14] p-5 rounded-[28px] w-[500px] max-w-[calc(100vw-3rem)] shadow-[0_16px_50px_rgba(0,0,0,0.35)]"
             >
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div>
@@ -1042,7 +1042,7 @@ export default function App() {
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.2 }}
-              className="self-start ml-6 bg-white/[0.07] backdrop-blur-xl border border-white/[0.14] rounded-2xl w-[240px] shadow-[0_8px_24px_rgba(0,0,0,0.30)] overflow-hidden"
+              className="pointer-events-auto self-start ml-6 bg-white/[0.07] backdrop-blur-xl border border-white/[0.14] rounded-2xl w-[240px] shadow-[0_8px_24px_rgba(0,0,0,0.30)] overflow-hidden"
             >
               <button
                 onClick={() => setShowFilter(v => !v)}
