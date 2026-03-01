@@ -17,16 +17,8 @@ logger = logging.getLogger(__name__)
 class BackboardService:
     """Memory and mastery tracking service wrapping Backboard SDK."""
 
-    _LANG_NAMES = {
-        "fr": "French", "es": "Spanish", "de": "German", "it": "Italian",
-        "pt": "Portuguese", "ja": "Japanese", "ko": "Korean", "zh": "Chinese",
-        "ar": "Arabic", "ru": "Russian", "nl": "Dutch", "tr": "Turkish",
-        "hi": "Hindi", "sv": "Swedish", "pl": "Polish",
-    }
-
     def __init__(self):
         self.mock_mode = MOCK_MODE
-        self._language_name = "French"
         self._mastery_scores: dict[str, float] = {}
         self._learner_profile: dict = {
             "level": "A1",
@@ -35,10 +27,6 @@ class BackboardService:
         }
         if not self.mock_mode:
             self._init_real_client()
-
-    def set_language(self, language: str):
-        """Set target language for mastery tracking prompts."""
-        self._language_name = self._LANG_NAMES.get(language, language.title())
 
     def _init_real_client(self):
         """Initialize Backboard SDK client for persistent memory.
@@ -236,7 +224,7 @@ class BackboardService:
             assistant = await self._client.create_assistant(
                 name="Echo Language Tutor",
                 system_prompt=(
-                    f"You are tracking a {self._language_name} language learner's progress. "
+                    "You are tracking a French language learner's progress. "
                     "Remember their mastery scores, CEFR level, and linguistic "
                     "ability borders as they advance through conversation turns."
                 ),

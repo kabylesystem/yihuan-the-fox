@@ -35,73 +35,36 @@ from backend.services.tts_service import TTSService
 
 logger = logging.getLogger(__name__)
 
-# Common stop words across supported languages — used to filter out
-# function words from fallback vocabulary extraction. This is a best-effort
-# set covering the most frequent function words; the AI's user_vocabulary
-# field is the primary source of vocabulary units.
+# French stop words to exclude from fallback vocabulary extraction
 _STOP_WORDS = {
-    # Filler / interjections (universal)
-    "euh", "um", "uh", "ah", "oh", "hm", "hmm", "ben", "bah", "hein",
-    # English (interface language)
-    "i", "me", "my", "you", "your", "he", "she", "it", "we", "they",
-    "the", "a", "an", "is", "am", "are", "was", "were", "be", "been",
-    "do", "does", "did", "have", "has", "had", "and", "or", "but", "not",
-    "yes", "no", "so", "if", "in", "on", "at", "to", "of", "for",
-    # French
     "je", "tu", "il", "elle", "on", "nous", "vous", "ils", "elles",
     "le", "la", "les", "un", "une", "des", "du", "de", "d",
     "à", "au", "aux", "en", "et", "ou", "mais", "donc", "car",
-    "que", "qui", "ne", "pas", "est", "ont", "sont", "c",
+    "que", "qui", "ne", "pas", "est", "a", "ont", "sont", "c",
     "ce", "se", "y", "l", "s", "n", "oui", "non", "très",
-    "suis", "es", "sommes", "avons", "avez", "fait", "ca", "ça",
-    # Spanish
-    "yo", "tú", "él", "ella", "usted", "nosotros", "ellos", "ellas",
-    "el", "lo", "las", "los", "es", "son", "sí",
-    "que", "de", "en", "y", "no", "por", "con", "para",
-    # German
-    "ich", "du", "er", "sie", "wir", "ihr", "das", "der", "die",
-    "ist", "bin", "sind", "und", "oder", "aber", "nicht", "ja", "nein",
-    "ein", "eine", "den", "dem", "des",
-    # Italian
-    "io", "lui", "lei", "noi", "voi", "loro",
-    "è", "sono", "di", "che", "con", "per", "sì",
-    # Portuguese
-    "eu", "ele", "ela", "nós", "eles", "elas",
-    "é", "são", "sim", "não", "com", "para",
-    # Chinese / Japanese / Korean — single-char particles
-    "的", "了", "是", "在", "我", "你", "他", "她",
-    "は", "が", "を", "に", "で", "の", "と",
-    "은", "는", "이", "가", "을", "를",
+    "suis", "es", "sommes", "etes", "êtes", "vais", "va", "vont",
+    "ai", "as", "avons", "avez", "fait", "faire", "ca", "ça",
+    "euh", "um", "ben", "bah", "hein",
 }
 
 
 def _extract_user_vocabulary(user_text: str) -> list[str]:
-    """Extract meaningful words/phrases from user's spoken text (any language).
+    """Extract meaningful French words/phrases from user's spoken text.
 
     Used as a fallback when OpenAI doesn't return user_vocabulary.
-    Works with Latin scripts (incl. contractions), CJK, Cyrillic, Arabic, Devanagari.
+    Handles contractions like j'habite, j'aime as single units.
     """
     text = user_text.strip()
     if not text:
         return []
 
-    # Match word tokens: Latin (with accents + contractions), CJK characters,
-    # Cyrillic, Arabic, Devanagari, Hangul
-    tokens = re.findall(
-        r"[a-zA-ZàâäéèêëïîôùûüÿçœæÀÂÄÉÈÊËÏÎÔÙÛÜŸÇŒÆáíóúñÁÍÓÚÑößÖÜÄ]+"
-        r"(?:'[a-zA-ZàâäéèêëïîôùûüÿçœæÀÂÄÉÈÊËÏÎÔÙÛÜŸÇŒÆáíóúñÁÍÓÚÑößÖÜÄ]+)?"
-        r"|[\u4e00-\u9fff\u3400-\u4dbf]+"   # CJK
-        r"|[\u3040-\u309f\u30a0-\u30ff]+"    # Hiragana + Katakana
-        r"|[\uac00-\ud7af\u1100-\u11ff]+"    # Hangul
-        r"|[\u0400-\u04ff]+"                 # Cyrillic
-        r"|[\u0600-\u06ff\u0750-\u077f]+"    # Arabic
-        r"|[\u0900-\u097f]+"                 # Devanagari
-        , text
-    )
+    # Split on spaces but keep contractions together (j'habite, l'école, etc.)
+    tokens = re.findall(r"[a-zA-ZàâäéèêëïîôùûüÿçœæÀÂÄÉÈÊËÏÎÔÙÛÜŸÇŒÆ]+(?:'[a-zA-ZàâäéèêëïîôùûüÿçœæÀÂÄÉÈÊËÏÎÔÙÛÜŸÇŒÆ]+)?", text)
 
     result = []
     for token in tokens:
         lower = token.lower()
+        # Skip stop words and very short tokens
         if lower in _STOP_WORDS or len(lower) < 2:
             continue
         result.append(token)
@@ -122,18 +85,11 @@ def _contains_space(value: str) -> bool:
 
 
 def _tokenize(value: str) -> list[str]:
-    return re.findall(r"\w+", _normalize_text(value))
+    return re.findall(r"[a-zA-Zàâäéèêëïîôùûüÿçœæ]+", _normalize_text(value))
 
 
 def _extract_pattern_candidates(corrected_text: str) -> list[dict]:
-    """Extract grammar pattern candidates from corrected text.
-
-    Language-agnostic: patterns are detected from multi-word phrases
-    that the AI already corrected. Specific pattern detection for
-    individual languages can be added here as needed.
-    """
     candidates: list[dict] = []
-    # French patterns (only fire if text contains French markers)
     if re.search(r"\bje suis\s+\w+", corrected_text):
         candidates.append({
             "text": "je suis + [noun]",
@@ -148,35 +104,19 @@ def _extract_pattern_candidates(corrected_text: str) -> list[dict]:
             "source": "corrected",
             "canonical_key": "pattern:preference_jaime_object",
         })
+    if re.search(r"\bj'ai envie de\s+\w+", corrected_text):
+        candidates.append({
+            "text": "j'ai envie de + [infinitive]",
+            "kind": "pattern",
+            "source": "corrected",
+            "canonical_key": "pattern:desire_jai_envie_de_infinitive",
+        })
     if re.search(r"\b(?:ça va|ca va)\b", corrected_text):
         candidates.append({
             "text": "ça va",
             "kind": "pattern",
             "source": "corrected",
             "canonical_key": "pattern:greeting_ca_va",
-        })
-    # Spanish patterns
-    if re.search(r"\bme llamo\s+\w+", corrected_text):
-        candidates.append({
-            "text": "me llamo + [name]",
-            "kind": "pattern",
-            "source": "corrected",
-            "canonical_key": "pattern:identity_me_llamo",
-        })
-    if re.search(r"\bme gusta\s+.+", corrected_text):
-        candidates.append({
-            "text": "me gusta + [object]",
-            "kind": "pattern",
-            "source": "corrected",
-            "canonical_key": "pattern:preference_me_gusta",
-        })
-    # German patterns
-    if re.search(r"\bich bin\s+\w+", corrected_text):
-        candidates.append({
-            "text": "ich bin + [noun/adj]",
-            "kind": "pattern",
-            "source": "corrected",
-            "canonical_key": "pattern:identity_ich_bin",
         })
     return candidates
 
@@ -205,27 +145,19 @@ def _canonicalize_candidates(raw_units: list[str], corrected_text: str, source_t
         else:
             kind = "word"
         canonical_key = f"{kind}:{text}"
-        # Detect common patterns across languages and promote to pattern kind
-        pattern_map = {
-            # French
-            "je suis ": ("pattern:identity_je_suis_noun", "je suis + [noun]"),
-            "j'aime ": ("pattern:preference_jaime_object", "j'aime + [object]"),
-            # Spanish
-            "me llamo ": ("pattern:identity_me_llamo", "me llamo + [name]"),
-            "me gusta ": ("pattern:preference_me_gusta", "me gusta + [object]"),
-            # German
-            "ich bin ": ("pattern:identity_ich_bin", "ich bin + [noun/adj]"),
-            "ich mag ": ("pattern:preference_ich_mag", "ich mag + [object]"),
-        }
-        matched_pattern = False
-        for prefix, (pkey, ptext) in pattern_map.items():
-            if text.startswith(prefix):
-                canonical_key = pkey
-                kind = "pattern"
-                text = ptext
-                matched_pattern = True
-                break
-        if not matched_pattern and text in {"ca va", "ça va"}:
+        if text.startswith("je suis "):
+            canonical_key = "pattern:identity_je_suis_noun"
+            kind = "pattern"
+            text = "je suis + [noun]"
+        elif text.startswith("j'aime "):
+            canonical_key = "pattern:preference_jaime_object"
+            kind = "pattern"
+            text = "j'aime + [object]"
+        elif text.startswith("j'ai envie de "):
+            canonical_key = "pattern:desire_jai_envie_de_infinitive"
+            kind = "pattern"
+            text = "j'ai envie de + [infinitive]"
+        elif text in {"ca va", "ça va"}:
             canonical_key = "pattern:greeting_ca_va"
             kind = "pattern"
             text = "ça va"
@@ -286,14 +218,7 @@ def _strict_validate_units(
         tokens = set(_tokenize(text))
 
         if kind not in ("pattern", "sentence"):
-            # Reject incomplete patterns (verb stubs without complements)
-            _INCOMPLETE_PATTERNS = {
-                "je suis", "j'aime", "j'ai envie de", "jai envie de",  # French
-                "me llamo", "me gusta",  # Spanish
-                "ich bin", "ich mag",  # German
-                "io sono", "mi piace",  # Italian
-            }
-            if kind == "chunk" and text in _INCOMPLETE_PATTERNS:
+            if kind == "chunk" and text in {"je suis", "j'aime", "j'ai envie de", "jai envie de"}:
                 rejected.append({
                     "text": text, "kind": kind, "source": item["source"],
                     "confidence": 0.45, "is_accepted": False, "reject_reason": "incomplete_pattern",
@@ -495,13 +420,6 @@ async def _process_turn(
     stt_ms = 0
     llm_ms = 0
 
-    # ── Language configuration ────────────────────────────────────────
-    target_language = (mission_context or {}).get("language", "fr")
-    _stt_service.set_language(target_language)
-    _openai_service.set_language(target_language)
-    _backboard_service.set_language(target_language)
-    _tts_service.set_language(target_language)
-
     # ── Step 1: STT ──────────────────────────────────────────────────
     if msg_type == "audio":
         await websocket.send_json({"type": "status", "step": "transcribing"})
@@ -518,7 +436,7 @@ async def _process_turn(
             user_text = content
 
     if not user_text:
-        return {"type": "error", "message": "Audio not recognized — speak closer to the mic, or type your message."}
+        return {"type": "error", "message": "Could not understand audio — try again or type instead."}
 
     # ── Build conversational context for the AI (i+1 style) ─────────
     # The AI should use this to shape the TOPIC of conversation, not to drill.
@@ -548,28 +466,6 @@ async def _process_turn(
             "Ask genuine questions about THEIR life. Follow their lead if they go elsewhere.\n"
         )
 
-    # Category focus mode — learner chose to converse about a specific domain
-    category_focus = mission_context.get("category_focus") if mission_context else None
-    category_vocab = mission_context.get("category_vocab", []) if mission_context else []
-    if category_focus:
-        vocab_hint = f" The learner already knows these words in this domain: {', '.join(category_vocab)}." if category_vocab else ""
-        mission_prompt_part = (
-            f"\n[CATEGORY FOCUS: {category_focus.upper()}]\n"
-            f"The learner has chosen to talk about the '{category_focus}' domain.{vocab_hint}\n"
-            "Lead a natural conversation anchored in this theme. Ask questions, share observations, "
-            "and gently reuse vocabulary from this domain. Do NOT quiz. Stay conversational.\n"
-        )
-
-    # Inject fading vocabulary so the AI naturally reactivates them
-    fading_from_frontend = mission_context.get("fading_targets", []) if mission_context else []
-    if fading_from_frontend:
-        mission_prompt_part += (
-            f"\nFading vocabulary (naturally weave 1-2 into conversation): "
-            f"{', '.join(fading_from_frontend[:5])}\n"
-            "Do NOT quiz or drill these — just use them naturally in YOUR speech "
-            "so the learner hears them again.\n"
-        )
-
     # ── Step 2: LLM (streaming) + TTS fires on FIRST SENTENCE mid-stream ──
     await websocket.send_json({"type": "status", "step": "thinking"})
     llm_start = time.perf_counter()
@@ -580,7 +476,13 @@ async def _process_turn(
     async def _on_spoken_ready(text: str):
         nonlocal early_tts_task
         tts_fire_time[0] = time.perf_counter()
-        logger.info(">>> TTS FIRED mid-stream (%d chars): '%s'", len(text), text[:60])
+        logger.info(">>> INSTANT browser TTS (%d chars): '%s'", len(text), text[:60])
+        # Send browser TTS IMMEDIATELY — user hears voice ~0ms after extraction
+        try:
+            await websocket.send_json({"type": "tts", "tts": {"mode": "browser", "text": text}})
+        except Exception:
+            pass
+        # Also fire OpenAI TTS in background (higher quality, arrives later)
         early_tts_task = asyncio.create_task(_tts_service.synthesize(text))
 
     response_data, early_spoken = await _openai_service.generate_response_streaming(
@@ -592,22 +494,15 @@ async def _process_turn(
                 stt_ms, llm_ms, int((tts_fire_time[0] - t0) * 1000) if tts_fire_time[0] else -1)
     tutor_response = TutorResponse(**response_data)
 
-    # ── Opener messages (category starters) — skip vocab extraction ──
-    is_opener = bool((mission_context or {}).get("is_opener"))
-    if is_opener:
-        tutor_response.user_vocabulary = []
-        tutor_response.corrected_form = ""
-        logger.info("Opener message detected — skipping vocabulary extraction")
-
     # ── Fallback: if AI didn't return user_vocabulary, extract from user_said ──
-    if not is_opener and not tutor_response.user_vocabulary and user_text:
+    if not tutor_response.user_vocabulary and user_text:
         tutor_response.user_vocabulary = _extract_user_vocabulary(user_text)
         logger.info("Fallback user_vocabulary: %s", tutor_response.user_vocabulary)
 
     # ── Step 2.5: strict pedagogical validation gate ────────────────
     current_hint = state.mission_state.get("current_hint") or _build_mission_hint(state.turn, tutor_response.user_level_assessment)
     accepted_units, rejected_units, quality = _strict_validate_units(
-        user_text=user_text if not is_opener else "",
+        user_text=user_text,
         corrected_form=tutor_response.corrected_form,
         raw_units=tutor_response.user_vocabulary,
         mission_hint=current_hint,
@@ -662,10 +557,6 @@ async def _process_turn(
     })
     state.diagnostics = state.diagnostics[-20:]
 
-    # Persist to Supabase after each turn
-    from backend.routes.session import save_after_turn
-    await save_after_turn()
-
     if MOCK_MODE and state.turn > total_mock_turns:
         state.demo_complete = True
 
@@ -692,26 +583,24 @@ async def _process_turn(
     }
     await websocket.send_json(response_payload)
 
-    # ── Step 5: TTS — ALWAYS send something (audio or browser fallback) ──
-    try:
-        tts_result = None
-        if early_tts_task:
-            try:
+    # ── Step 5: TTS + Backboard in background ──────────────────────
+    async def _background_tasks():
+        # TTS — use early-fired result if available, otherwise generate now
+        try:
+            if early_tts_task:
                 tts_result = await early_tts_task
-            except Exception as exc:
-                logger.warning("Early TTS task failed: %s", exc)
-        if not tts_result:
-            tts_result = await _tts_service.synthesize(tutor_response.spoken_response)
-        total_to_audio = int((time.perf_counter() - t0) * 1000)
-        logger.info(">>> AUDIO READY: %dms total (mode=%s)", total_to_audio, tts_result.get("mode"))
-        await websocket.send_json({"type": "tts", "tts": tts_result})
-    except Exception as exc:
-        logger.error("TTS send failed, sending browser fallback: %s", exc)
-        # ALWAYS send a TTS message so frontend doesn't hang waiting
-        await websocket.send_json({"type": "tts", "tts": {"mode": "browser", "text": tutor_response.spoken_response}})
+            else:
+                logger.warning("No early TTS task — generating TTS now (slower path)")
+                tts_result = await _tts_service.synthesize(
+                    tutor_response.spoken_response
+                )
+            total_to_audio = int((time.perf_counter() - t0) * 1000)
+            logger.info(">>> AUDIO SENT: %dms total (from mic-stop to audio-sent)", total_to_audio)
+            await websocket.send_json({"type": "tts", "tts": tts_result})
+        except Exception as exc:
+            logger.error("TTS failed (non-fatal): %s", exc)
 
-    # ── Step 6: Backboard update in background (non-critical) ─────
-    async def _background_backboard():
+        # Backboard — persist memory
         try:
             await _backboard_service.update_mastery(tutor_response.mastery_scores)
             await _backboard_service.update_profile(
@@ -722,7 +611,7 @@ async def _process_turn(
         except Exception as exc:
             logger.error("Backboard update failed (non-fatal): %s", exc)
 
-    asyncio.create_task(_background_backboard())
+    asyncio.create_task(_background_tasks())
 
     # Return None — response already sent via websocket above
     return None

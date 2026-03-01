@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 class VocabularyItem(BaseModel):
     """A single vocabulary entry in a tutor response breakdown."""
 
-    word: str = Field(..., description="The target-language word or phrase")
+    word: str = Field(..., description="The French word or phrase")
     translation: str = Field(..., description="English translation")
     part_of_speech: str = Field(..., description="Grammatical category (e.g. noun, verb)")
 
@@ -60,11 +60,11 @@ class CorrectionItem(BaseModel):
 class TutorResponse(BaseModel):
     """Full pedagogical response from the AI tutor for a single turn.
 
-    Contains the spoken target-language response, translation hints, vocabulary
+    Contains the spoken French response, translation hints, vocabulary
     breakdown, i+1 elements, CEFR assessment, and mastery scores.
     """
 
-    spoken_response: str = Field(..., description="Tutor's spoken target-language response")
+    spoken_response: str = Field(..., description="Tutor's spoken French response")
     translation_hint: str = Field(..., description="English translation of the response")
     corrected_form: str = Field(
         default="",
@@ -132,7 +132,7 @@ class ConversationTurn(BaseModel):
     """A single conversation turn containing user input and tutor response."""
 
     turn_number: int = Field(..., ge=1, description="1-indexed turn number")
-    user_said: str = Field(..., description="What the user spoke in the target language (STT output)")
+    user_said: str = Field(..., description="What the user spoke in French (STT output)")
     response: TutorResponse = Field(..., description="Full tutor response for this turn")
 
 
