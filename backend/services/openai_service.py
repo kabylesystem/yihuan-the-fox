@@ -41,8 +41,16 @@ _FALLBACK_RESPONSE = {
 # System prompt without curly brace JSON examples (Backboard uses LangChain templates)
 _SYSTEM_PROMPT_BACKBOARD = (
     "You are a warm French tutor using Krashen's i+1. Return ONLY valid JSON (no markdown fences, no explanation text).\n\n"
+    "*** MISSION-DRIVEN TEACHING ***\n"
+    "The learner has an active MISSION with specific tasks (sent with each message).\n"
+    "Your spoken_response MUST actively guide the learner toward completing the next [TODO] task.\n"
+    "- If the learner hasn't started: warmly introduce the mission and ask them to try the first task\n"
+    "- If they completed a task: celebrate briefly, then steer toward the next [TODO] task\n"
+    "- If all tasks are done: congratulate them enthusiastically\n"
+    "- Your question at the end should directly target the next uncompleted task\n"
+    "- Never ignore the mission — every response should move the learner forward\n\n"
     "RULES:\n"
-    "- spoken_response: 1-2 natural French sentences ending with ONE concrete question\n"
+    "- spoken_response: 1-2 natural French sentences ending with ONE concrete question targeting the next mission task\n"
     "- vocabulary_breakdown: array of objects with word, translation, part_of_speech\n"
     "- graph_links: array of objects with source, target, type (semantic|conjugation|prerequisite)\n"
     "- Always try to reuse at least one fading unit from earlier turns in reactivated_elements\n"
@@ -65,11 +73,18 @@ _SYSTEM_PROMPT_BACKBOARD = (
 # System prompt with JSON example for OpenAI (supports json_object mode)
 _SYSTEM_PROMPT_OPENAI = (
     "You are a warm French tutor using Krashen's i+1. Return ONLY valid JSON.\n\n"
+    "*** MISSION-DRIVEN TEACHING ***\n"
+    "The learner has an active MISSION with specific tasks (sent with each message).\n"
+    "Your spoken_response MUST actively guide the learner toward completing the next [TODO] task.\n"
+    "- If the learner hasn't started: warmly introduce the mission and ask them to try the first task\n"
+    "- If they completed a task: celebrate briefly, then steer toward the next [TODO] task\n"
+    "- If all tasks are done: congratulate them enthusiastically\n"
+    "- Your question at the end should directly target the next uncompleted task\n"
+    "- Never ignore the mission — every response should move the learner forward\n\n"
     "RULES:\n"
-    "- spoken_response: 1-2 natural French sentences\n"
+    "- spoken_response: 1-2 natural French sentences ending with ONE concrete question targeting the next mission task\n"
     "- vocabulary_breakdown: array of {word, translation, part_of_speech}\n"
     "- graph_links: array of {source, target, type} where type is semantic|conjugation|prerequisite\n"
-    "- spoken_response must actively coach the next turn: end with ONE concrete question the learner can answer out loud\n"
     "- Always try to reuse at least one fading unit from earlier turns; include it in reactivated_elements\n"
     "- user_vocabulary: MUST list words/phrases the USER said (never empty). Even 'Bonjour' -> ['bonjour']\n"
     "- Never output both a phrase and its split tokens in user_vocabulary\n"
@@ -275,7 +290,7 @@ class OpenAIService:
             return dict(_FALLBACK_RESPONSE)
         return MOCK_CONVERSATION[turn_number]["response"]
 
-    def _rule_based_fallback(self, user_text: str) -> dict:
+    def _rule_based_fallback(self, user_text: str, mission_context: str = "") -> dict:
         units = _extract_units_heuristic(user_text)
         validated = [
             {
@@ -292,19 +307,31 @@ class OpenAIService:
         ]
         first = units[0] if units else "bonjour"
 
-        # Varied, natural responses instead of a single robotic template
-        templates = [
-            (f"Très bien ! Tu as dit « {first} ». Et toi, qu'est-ce que tu aimes faire ?",
-             f"Very good! You said '{first}'. And you, what do you like to do?"),
-            (f"Super, « {first} » ! Dis-moi, qu'est-ce que tu as fait aujourd'hui ?",
-             f"Great, '{first}'! Tell me, what did you do today?"),
-            (f"J'adore ! « {first} », c'est bien. Tu peux me dire où tu habites ?",
-             f"I love it! '{first}', that's good. Can you tell me where you live?"),
-            (f"Bravo pour « {first} » ! Maintenant, parle-moi de ta journée.",
-             f"Bravo for '{first}'! Now, tell me about your day."),
-            (f"Excellent ! Tu connais « {first} ». Qu'est-ce que tu manges ce soir ?",
-             f"Excellent! You know '{first}'. What are you eating tonight?"),
-        ]
+        # Mission-aware fallback: steer toward uncompleted tasks
+        if mission_context and "[TODO]" in mission_context:
+            todo_match = re.search(r"\[TODO\]\s*(.+?)(?:,|\n|$)", mission_context)
+            next_task = todo_match.group(1).strip() if todo_match else ""
+            templates = [
+                (f"Très bien, « {first} » ! Maintenant, essaie : {next_task.lower()} Comment dirais-tu ça en français ?",
+                 f"Very good, '{first}'! Now try: {next_task.lower()} How would you say that in French?"),
+                (f"Super ! Tu progresses bien. Pour la mission : {next_task.lower()} Tu peux essayer ?",
+                 f"Great! You're progressing well. For the mission: {next_task.lower()} Can you try?"),
+                (f"Bravo pour « {first} » ! Continue, {next_task.lower()} Dis-le en français !",
+                 f"Bravo for '{first}'! Keep going, {next_task.lower()} Say it in French!"),
+            ]
+        else:
+            templates = [
+                (f"Très bien ! Tu as dit « {first} ». Et toi, qu'est-ce que tu aimes faire ?",
+                 f"Very good! You said '{first}'. And you, what do you like to do?"),
+                (f"Super, « {first} » ! Dis-moi, qu'est-ce que tu as fait aujourd'hui ?",
+                 f"Great, '{first}'! Tell me, what did you do today?"),
+                (f"J'adore ! « {first} », c'est bien. Tu peux me dire où tu habites ?",
+                 f"I love it! '{first}', that's good. Can you tell me where you live?"),
+                (f"Bravo pour « {first} » ! Maintenant, parle-moi de ta journée.",
+                 f"Bravo for '{first}'! Now, tell me about your day."),
+                (f"Excellent ! Tu connais « {first} ». Qu'est-ce que tu manges ce soir ?",
+                 f"Excellent! You know '{first}'. What are you eating tonight?"),
+            ]
         spoken, hint = random.choice(templates)
 
         return {
@@ -435,4 +462,4 @@ class OpenAIService:
 
         # Strategy 3: Rule-based fallback (always works)
         logger.warning("Both LLMs failed, using rule-based fallback")
-        return self._rule_based_fallback(user_text)
+        return self._rule_based_fallback(user_text, mission_context=mission_context)

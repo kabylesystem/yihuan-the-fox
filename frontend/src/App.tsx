@@ -4,7 +4,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { Neuron, Synapse, NebulaState, Category, Message } from './types';
 import { analyzeInput, checkBackend, isUsingBackend, resetMockState, getMockTurnIndex, getTotalMockTurns } from './services/geminiService';
 import { onConnectionStatusChange, onStatusStep, onTTS, ConnectionStatus, hardResetSession } from './services/backendService';
-import { Send, Zap, Info, Loader2, Search, Filter, Mic, Clock, X, MessageSquare, User, Bot, ChevronDown, ChevronUp, Plane, RefreshCw, Wifi, WifiOff, CheckCircle2, Circle, Sparkles, LocateFixed, Trash2, Award, Volume2, FlaskConical } from 'lucide-react';
+import { Send, Zap, Info, Loader2, Search, Filter, Mic, Clock, X, MessageSquare, User, Bot, ChevronDown, ChevronUp, Plane, RefreshCw, Wifi, WifiOff, CheckCircle2, Circle, Sparkles, LocateFixed, Trash2, Volume2, FlaskConical } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 // Logo is now a CSS radial gradient (black hole with blue glow)
 
@@ -1034,13 +1034,6 @@ export default function App() {
                     })}
                   </div>
 
-                  <div className="mt-4 pt-3 border-t border-white/[0.12] flex items-center justify-between">
-                    <div className="text-sm text-white/50 flex items-center gap-1.5">
-                      <Award size={12} className="text-yellow-300" />
-                      Mission reward
-                    </div>
-                    <div className="text-sm font-mono text-blue-300">+{activeMission.reward} XP</div>
-                  </div>
                 </>
               )}
             </motion.div>
@@ -1235,7 +1228,7 @@ export default function App() {
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="absolute bottom-6 left-6 pointer-events-auto flex items-center gap-3 bg-white/[0.05] backdrop-blur-xl border border-white/[0.10] px-4 py-3 rounded-2xl shadow-[0_8px_24px_rgba(0,0,0,0.30)]"
+          className="absolute bottom-6 left-12 pointer-events-auto flex items-center gap-3 bg-white/[0.05] backdrop-blur-xl border border-white/[0.10] px-4 py-3 rounded-2xl shadow-[0_8px_24px_rgba(0,0,0,0.30)]"
         >
           <BlueRingLogo />
           <div>
