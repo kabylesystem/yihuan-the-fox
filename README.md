@@ -1,228 +1,95 @@
-# 🧠 Neural-Sync Language Lab
+# Echo — Neural Language Lab
 
 > **Activate Your Voice Hackathon — Feb 28 – Mar 1, 2026**
-> Track 1: Communication & Human Experience
 
----
+A voice-first language learning platform where every word you learn becomes a glowing node in a 3D knowledge nebula. Speak, learn, and watch your neural network grow in real time.
 
-## 🎯 Vision
+## What It Does
 
-Neural-Sync Language Lab reimagines language learning by shifting focus from isolated vocabulary to a **dynamic, sentence-based neural ecosystem**.
+You have a natural voice conversation with an AI tutor in any of 15+ languages. The AI adapts to your level using Krashen's i+1 theory — always pushing you just beyond your comfort zone, never drilling.
 
-Utilizing a real-time AI voice interface, the platform maps your **"linguistic borders"** — the edge of what you can express — and provides **i+1 adaptive input** (Krashen's theory), forcing the active retrieval of past sentences to prevent decay.
+Every word and sentence you use is mapped into an interactive 3D knowledge graph. Words you practice glow brighter. Words you neglect slowly fade — and the AI naturally brings them back into conversation.
 
-Through a stunning, interactive **Knowledge Graph**, users visually track their growing neural network as simple greetings evolve into complex fluency, ensuring that every learned structure is **permanently hardwired through contextual activation**.
+## Sponsor Integrations
 
----
+### Speechmatics — The Voice Engine
 
-## 💡 How It Aligns With the Hackathon Mission
+Speechmatics powers **both** sides of the voice pipeline:
 
-| Hackathon Criteria | Neural-Sync Implementation |
-|---|---|
-| **Intelligent Actions** | i+1 adaptive input that pushes the learner just beyond their current level — not passive flashcards, but proactive sentence generation |
-| **Deep Memory** | Persistent memory of every sentence learned, mastery level, and decay risk via Backboard.io's stateful memory layer |
-| **Adaptive Behavior Intelligence** | Real-time mapping of "linguistic borders" that evolves per user — the system personalizes its approach based on strengths, weaknesses, and learning velocity |
-| **Continuous Improvement** | Spaced retrieval forcing reactivation of past structures; the Knowledge Graph densifies with every conversation, and the system gets smarter over time |
+- **STT (Speech-to-Text)**: Real-time transcription via WebSocket in `enhanced` mode. Multilingual recognition across 15+ languages with high accuracy, even for learners with accents.
+- **TTS (Text-to-Speech)**: Neural voice synthesis via the Preview TTS API (`preview.tts.speechmatics.com`). Natural-sounding voices (Zoe, Sarah, Isabelle) for all supported languages. Primary audio provider — every AI response is spoken back with Speechmatics.
 
----
+Speechmatics is the **primary and preferred provider** for both STT and TTS. 
 
-## 🏗️ Architecture Overview
+### Backboard.io — The Memory Layer
 
-```
-│                    FRONTEND                          │
-│  React App + D3.js Knowledge Graph + Voice UI        │
-│  - Mic capture & audio streaming                     │
-│  - Interactive neural graph visualization            │
-│  - Session dashboard & progress metrics              │
-└──────────────┬──────────────────┬────────────────────┘
-               │                  │
-               ▼                  ▼
-┌──────────────────────┐  ┌────────────────────────────┐
-│   SPEECHMATICS API   │  │      VOICE SYNTHESIS       │
-│  Real-time STT       │  │  (Web Speech API / OpenAI  │
-│  - Multilingual      │  │   TTS for responses)       │
-│  - Pronunciation     │  │                            │
-│    confidence scores  │  │                            │
-└──────────┬───────────┘  └────────────────────────────┘
-           │
-           ▼
-┌─────────────────────────────────────────────────────┐
-│                 ORCHESTRATION LAYER                   │
-│  Python/Node backend                                 │
-│                                                      │
-│  ┌─────────────────┐    ┌──────────────────────────┐ │
-│  │  BACKBOARD.IO    │    │  OPENAI GPT-5.3          │ │
-│  │  Memory Layer    │    │  Intelligence Engine     │ │
-│  │                  │    │                          │ │
-│  │ - User profile   │◄──►│ - i+1 sentence gen      │ │
-│  │ - Learned items  │    │ - Level assessment       │ │
-│  │ - Mastery scores │    │ - Border mapping         │ │
-│  │ - Decay tracking │    │ - Retrieval scheduling   │ │
-│  │ - Entity graph   │    │ - Conversation flow      │ │
-│  └─────────────────┘    └──────────────────────────┘ │
-└─────────────────────────────────────────────────────┘
-```
+Backboard stores the learner's entire linguistic profile across sessions:
 
----
+- **Mastery scores** for every word and sentence learned
+- **Entity graph** tracking relationships between vocabulary items
+- **Decay tracking** — identifies which words are "at risk" of being forgotten
+- **Persistent profiles** — switch between learners, resume sessions seamlessly
 
-## 🔧 Tech Stack
+The AI tutor queries Backboard's memory to decide what to teach next. Without Backboard, the system has no memory — it IS the learning engine.
 
-### Core Sponsors (all three integrated)
+### OpenAI — The Intelligence Engine
 
-| Tool | Role | Why |
-|---|---|---|
-| **Speechmatics** | Real-time Speech-to-Text | Multilingual recognition, pronunciation confidence scoring, language detection. The "ear" of the system. |
-| **Backboard.io** | Persistent AI Memory | Stores learner profiles, sentence mastery, decay timers, entity relationships across sessions. The "long-term brain." SDK: `pip install backboard-sdk` / `npm install backboard-sdk` |
-| **OpenAI GPT-5.3** | Adaptive Intelligence | Generates i+1 sentences, evaluates learner level, manages pedagogical logic, orchestrates retrieval. The "reasoning engine." |
+GPT-4o-mini generates adaptive i+1 responses via streaming:
 
-### Frontend
+- Evaluates learner level in real time (A0 → C2)
+- Generates natural conversation (never drills or quizzes)
+- Extracts vocabulary with translations and grammar analysis
+- Produces structured JSON for graph updates mid-stream
+- TTS fires on the first sentence while the rest of the response still streams — parallel pipeline for minimal latency
 
-| Tool | Role |
-|---|---|
-| **React** (or Next.js) | Main application shell |
-| **D3.js** / **vis.js** | Interactive Knowledge Graph visualization |
-| **Web Audio API** | Mic capture + audio streaming to Speechmatics |
-| **Web Speech API** / **OpenAI TTS** | Voice output for the tutor |
-
-### Backend
-
-| Tool | Role |
-|---|---|
-| **Python (FastAPI)** or **Node.js (Express)** | Orchestration server |
-| **WebSocket** | Real-time bidirectional audio/text streaming |
-
----
-
-## 🧪 Core Features (MVP Scope for 24h)
-
-### 1. Voice Conversation Loop (Priority 1 — MUST HAVE)
-- User speaks in target language via microphone
-- Speechmatics transcribes in real-time
-- GPT evaluates the sentence, identifies level, generates the next i+1 prompt
-- Backboard stores the interaction with mastery metadata
-- TTS speaks the response back to the user
-
-### 2. Linguistic Border Mapping (Priority 1 — MUST HAVE)
-- After a few exchanges, the system identifies what the user CAN and CANNOT express
-- Builds an internal "border map" of linguistic competence
-- Uses this map to always push i+1 — not too easy, not too hard
-
-### 3. Active Retrieval & Decay Prevention (Priority 2 — SHOULD HAVE)
-- Backboard tracks when each sentence was last activated
-- System periodically forces retrieval of "at-risk" structures in new contexts
-- Example: user learned "Je voudrais un café" 30 min ago → system generates a new situation requiring "Je voudrais..." in a different context
-
-### 4. Knowledge Graph Visualization (Priority 2 — SHOULD HAVE)
-- Interactive D3.js graph showing:
-  - Nodes = learned sentences/structures
-  - Edges = shared vocabulary/grammar links
-  - Color = mastery level (green = solid, yellow = at risk, red = decaying)
-  - Size = usage frequency
-- Real-time updates as the user learns
-
-### 5. Session Dashboard (Priority 3 — NICE TO HAVE)
-- Stats: sentences learned, mastery %, session duration
-- Progress over time
-- Linguistic border expansion visualization
-
----
-
-## 🗺️ 24-Hour Roadmap
-
-### Phase 1: Foundation 
-- [ ] Project scaffolding (frontend + backend)
-- [ ] Speechmatics WebSocket integration — mic → STT working
-- [ ] Backboard.io setup — assistant + thread creation
-- [ ] OpenAI API connection — basic prompt/response
-- [ ] **Checkpoint: can speak into mic and get a text transcription + AI response**
-
-### Phase 2: Core Loop
-- [ ] Full voice conversation loop: speak → transcribe → GPT process → TTS respond
-- [ ] Backboard memory integration: store each sentence with metadata (mastery, timestamp, grammar tags)
-- [ ] i+1 logic: GPT system prompt that uses Backboard memory to generate the next appropriate sentence
-- [ ] Linguistic border detection: after 5+ exchanges, system builds a competence profile
-- [ ] **Checkpoint: full voice learning session works end-to-end**
-
-### Phase 3: Intelligence & Memory 
-- [ ] Decay tracking: tag sentences with "last activated" timestamps in Backboard
-- [ ] Retrieval forcing: system weaves old structures into new prompts
-- [ ] Refine i+1 adaptation based on accumulated border data
-- [ ] Error correction flow: detect pronunciation/grammar issues and provide feedback
-- [ ] **Checkpoint: system demonstrates memory and adaptation across a multi-turn session**
-
-### Phase 4: Knowledge Graph & Polish
-- [ ] D3.js Knowledge Graph: nodes, edges, color coding
-- [ ] Real-time graph updates during conversation
-- [ ] Session dashboard with key metrics
-- [ ] UI/UX polish — make it demo-ready
-- [ ] **Checkpoint: visually stunning, demo-ready product**
-
-### Phase 5: Demo Prep
-- [ ] Prepare demo script (2-3 min live demo)
-- [ ] Edge case testing
-- [ ] Pitch deck / slides if needed
-- [ ] Record backup demo video
-
----
-
-## 📂 Project Structure (Proposed)
+## Architecture
 
 ```
-neural-sync/
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── VoiceInterface.jsx      # Mic + audio controls
-│   │   │   ├── KnowledgeGraph.jsx      # D3.js graph
-│   │   │   ├── ConversationPanel.jsx   # Live transcript
-│   │   │   └── Dashboard.jsx           # Stats & progress
-│   │   ├── hooks/
-│   │   │   ├── useSpeechmatics.js      # Speechmatics WebSocket
-│   │   │   └── useAudioCapture.js      # Mic stream
-│   │   ├── services/
-│   │   │   └── api.js                  # Backend API calls
-│   │   └── App.jsx
-│   └── package.json
-├── backend/
-│   ├── main.py                         # FastAPI server
-│   ├── services/
-│   │   ├── speechmatics_service.py     # STT integration
-│   │   ├── backboard_service.py        # Memory layer
-│   │   ├── openai_service.py           # GPT intelligence
-│   │   └── orchestrator.py             # Core learning loop
-│   ├── models/
-│   │   └── schemas.py                  # Data models
-│   └── requirements.txt
-├── .env                                # API keys (DO NOT COMMIT)
-├── .env.example
-└── README.md
+Frontend (React + Three.js + Vite)
+├── 3D Knowledge Nebula — force-directed graph with bloom effects
+├── Voice HUD — tap-to-speak, live transcript, AI response
+├── Mission system — daily goals that auto-check as you speak
+└── Onboarding — language selection, level assessment
+
+Backend (FastAPI + WebSocket)
+├── Speechmatics STT (enhanced) — real-time transcription
+├── Speechmatics TTS — neural voice synthesis (primary)
+├── OpenAI GPT-4o-mini — streaming AI tutor responses
+├── Backboard.io — persistent memory + mastery tracking
+└── Supabase — session persistence + conversation history
 ```
 
----
+## Tech Stack
 
-## 🔑 Environment Variables
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React, TypeScript, Three.js (R3F), Framer Motion, Tailwind CSS |
+| 3D Graph | D3-force-3d, @react-three/fiber, @react-three/postprocessing |
+| Backend | Python, FastAPI, WebSocket, asyncio |
+| STT | Speechmatics Enhanced (WebSocket real-time) |
+| TTS | Speechmatics Preview TTS API |
+| AI | OpenAI GPT-4o-mini (streaming) via Backboard.io |
+| Memory | Backboard.io SDK |
+| Database | Supabase |
+| Deploy | Vercel (frontend), Railway (backend) |
 
-```env
-# Speechmatics
-SPEECHMATICS_API_KEY=your_key_here
+## Running Locally
 
-# Backboard.io
-BACKBOARD_API_KEY=bk_your_key_here
+```bash
+# Backend
+cd backend
+pip install -r requirements.txt
+uvicorn backend.main:app --reload
 
-# OpenAI
-OPENAI_API_KEY=sk-your_key_here
-OPENAI_ORG_ID=org-your_org_here
+# Frontend
+cd frontend
+npm install
+npm run dev
 ```
 
----
+Requires `.env` with: `SPEECHMATICS_API_KEY`, `BACKBOARD_API_KEY`, `OPENAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`
 
-## 🏆 Why We Win
+## Live Demo
 
-1. **All 3 sponsors deeply integrated** — not token usage, real architectural dependency
-2. **Voice-first by design** — not a text app with a mic bolted on
-3. **Memory is the product** — Backboard isn't a nice-to-have, it IS the learning engine
-4. **Visually striking** — the Knowledge Graph is an instant "wow" for judges
-5. **Grounded in real science** — Krashen's i+1, spaced retrieval, active recall
-6. **Real-world utility** — language learning is a massive market, this is a credible product
-
----
+- **App**: https://frontend-puce-kappa-7o1rgv08q5.vercel.app
+- **Onboarding**: https://frontend-puce-kappa-7o1rgv08q5.vercel.app/onboarding
