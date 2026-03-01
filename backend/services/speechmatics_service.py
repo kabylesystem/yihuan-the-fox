@@ -57,7 +57,7 @@ class SpeechmaticsService:
             language="fr",
             enable_partials=False,
             max_delay=0.7,
-            operating_point="standard",
+            operating_point="enhanced",
         )
 
     async def transcribe(self, audio_data: bytes, turn_number: int) -> str:
