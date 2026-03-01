@@ -427,21 +427,32 @@ async def _process_turn(
     if not user_text:
         return {"type": "error", "message": "Could not understand audio — try again or type instead."}
 
-    # ── Build mission-aware context for the AI ───────────────────────
+    # ── Build conversational context for the AI (i+1 style) ─────────
+    # The AI should use this to shape the TOPIC of conversation, not to drill.
+    # Missions are passive detectors — the AI creates natural context.
     mission_prompt_part = ""
     if mission_context:
-        tasks_str = ", ".join(
-            f'{"[DONE]" if t.get("done") else "[TODO]"} {t.get("label", "")}'
+        todo_topics = [
+            t.get("label", "")
             for t in (mission_context.get("tasks") or [])
-        )
+            if not t.get("done")
+        ]
+        done_topics = [
+            t.get("label", "")
+            for t in (mission_context.get("tasks") or [])
+            if t.get("done")
+        ]
+        topics_str = ", ".join(todo_topics) if todo_topics else "free conversation"
         mission_prompt_part = (
-            f"\n[CURRENT MISSION: {mission_context.get('title', '')}]\n"
-            f"Objective: {mission_context.get('objective', '')}\n"
-            f"Tasks: {tasks_str}\n"
-            f"Progress: {mission_context.get('done_count', 0)}/{mission_context.get('total', 3)}\n"
-            f"Hint for learner: {mission_context.get('starter', '')}\n"
-            "IMPORTANT: Guide the learner toward completing the remaining [TODO] tasks. "
-            "Your spoken_response should naturally steer the conversation to help them achieve the mission goals.\n"
+            f"\n[CONVERSATION THEME: {mission_context.get('title', '')}]\n"
+            f"Topics the learner hasn't touched yet: {topics_str}\n"
+        )
+        if done_topics:
+            mission_prompt_part += f"Topics already covered: {', '.join(done_topics)}\n"
+        mission_prompt_part += (
+            "REMEMBER: Do NOT instruct or drill. Create a natural conversational situation "
+            "where the learner might spontaneously use language related to these topics. "
+            "Ask genuine questions about THEIR life. Follow their lead if they go elsewhere.\n"
         )
 
     # ── Step 2: OpenAI (i+1 response generation) ─────────────────────

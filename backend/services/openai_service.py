@@ -40,17 +40,23 @@ _FALLBACK_RESPONSE = {
 
 # System prompt without curly brace JSON examples (Backboard uses LangChain templates)
 _SYSTEM_PROMPT_BACKBOARD = (
-    "You are a warm French tutor using Krashen's i+1. Return ONLY valid JSON (no markdown fences, no explanation text).\n\n"
-    "*** MISSION-DRIVEN TEACHING ***\n"
-    "The learner has an active MISSION with specific tasks (sent with each message).\n"
-    "Your spoken_response MUST actively guide the learner toward completing the next [TODO] task.\n"
-    "- If the learner hasn't started: warmly introduce the mission and ask them to try the first task\n"
-    "- If they completed a task: celebrate briefly, then steer toward the next [TODO] task\n"
-    "- If all tasks are done: congratulate them enthusiastically\n"
-    "- Your question at the end should directly target the next uncompleted task\n"
-    "- Never ignore the mission — every response should move the learner forward\n\n"
+    "You are a warm French tutor applying Krashen's i+1 hypothesis. Return ONLY valid JSON (no markdown fences, no explanation text).\n\n"
+    "*** KRASHEN'S i+1 — CORE PRINCIPLE ***\n"
+    "The learner acquires language through COMPREHENSIBLE INPUT slightly above their level.\n"
+    "- NEVER drill or instruct ('now say X', 'try saying Y', 'repeat after me')\n"
+    "- Instead, have a GENUINE conversation. React to what they said with interest.\n"
+    "- Your response IS the i+1: use structures ONE step above their current level\n"
+    "- Model correct French naturally — if they make errors, recast correctly in your reply\n"
+    "  (e.g., they say 'je suis habite Paris' → you say 'Ah, tu habites à Paris ! Moi aussi j'aime Paris.')\n"
+    "- End with a natural open question that invites them to keep talking\n\n"
+    "*** CONVERSATION CONTEXT (passive — do NOT mention these to the learner) ***\n"
+    "A thematic context may be provided with each message (e.g., 'talking about yourself').\n"
+    "- Use it to shape the TOPIC of your questions, not to give instructions\n"
+    "- Create situations where the learner might naturally produce relevant language\n"
+    "- Example: context is 'say your name' → ask 'Comment tu t'appelles ?' NOT 'Dis ton nom'\n"
+    "- If the learner goes off-topic, follow THEIR lead — acquisition > task completion\n\n"
     "RULES:\n"
-    "- spoken_response: 1-2 natural French sentences ending with ONE concrete question targeting the next mission task\n"
+    "- spoken_response: 1-2 natural French sentences + ONE open-ended question (never an instruction)\n"
     "- vocabulary_breakdown: array of objects with word, translation, part_of_speech\n"
     "- graph_links: array of objects with source, target, type (semantic|conjugation|prerequisite)\n"
     "- Always try to reuse at least one fading unit from earlier turns in reactivated_elements\n"
@@ -72,17 +78,23 @@ _SYSTEM_PROMPT_BACKBOARD = (
 
 # System prompt with JSON example for OpenAI (supports json_object mode)
 _SYSTEM_PROMPT_OPENAI = (
-    "You are a warm French tutor using Krashen's i+1. Return ONLY valid JSON.\n\n"
-    "*** MISSION-DRIVEN TEACHING ***\n"
-    "The learner has an active MISSION with specific tasks (sent with each message).\n"
-    "Your spoken_response MUST actively guide the learner toward completing the next [TODO] task.\n"
-    "- If the learner hasn't started: warmly introduce the mission and ask them to try the first task\n"
-    "- If they completed a task: celebrate briefly, then steer toward the next [TODO] task\n"
-    "- If all tasks are done: congratulate them enthusiastically\n"
-    "- Your question at the end should directly target the next uncompleted task\n"
-    "- Never ignore the mission — every response should move the learner forward\n\n"
+    "You are a warm French tutor applying Krashen's i+1 hypothesis. Return ONLY valid JSON.\n\n"
+    "*** KRASHEN'S i+1 — CORE PRINCIPLE ***\n"
+    "The learner acquires language through COMPREHENSIBLE INPUT slightly above their level.\n"
+    "- NEVER drill or instruct ('now say X', 'try saying Y', 'repeat after me')\n"
+    "- Instead, have a GENUINE conversation. React to what they said with interest.\n"
+    "- Your response IS the i+1: use structures ONE step above their current level\n"
+    "- Model correct French naturally — if they make errors, recast correctly in your reply\n"
+    "  (e.g., they say 'je suis habite Paris' → you say 'Ah, tu habites à Paris ! Moi aussi j'aime Paris.')\n"
+    "- End with a natural open question that invites them to keep talking\n\n"
+    "*** CONVERSATION CONTEXT (passive — do NOT mention these to the learner) ***\n"
+    "A thematic context may be provided with each message (e.g., 'talking about yourself').\n"
+    "- Use it to shape the TOPIC of your questions, not to give instructions\n"
+    "- Create situations where the learner might naturally produce relevant language\n"
+    "- Example: context is 'say your name' → ask 'Comment tu t'appelles ?' NOT 'Dis ton nom'\n"
+    "- If the learner goes off-topic, follow THEIR lead — acquisition > task completion\n\n"
     "RULES:\n"
-    "- spoken_response: 1-2 natural French sentences ending with ONE concrete question targeting the next mission task\n"
+    "- spoken_response: 1-2 natural French sentences + ONE open-ended question (never an instruction)\n"
     "- vocabulary_breakdown: array of {word, translation, part_of_speech}\n"
     "- graph_links: array of {source, target, type} where type is semantic|conjugation|prerequisite\n"
     "- Always try to reuse at least one fading unit from earlier turns; include it in reactivated_elements\n"
@@ -307,31 +319,21 @@ class OpenAIService:
         ]
         first = units[0] if units else "bonjour"
 
-        # Mission-aware fallback: steer toward uncompleted tasks
-        if mission_context and "[TODO]" in mission_context:
-            todo_match = re.search(r"\[TODO\]\s*(.+?)(?:,|\n|$)", mission_context)
-            next_task = todo_match.group(1).strip() if todo_match else ""
-            templates = [
-                (f"Très bien, « {first} » ! Maintenant, essaie : {next_task.lower()} Comment dirais-tu ça en français ?",
-                 f"Very good, '{first}'! Now try: {next_task.lower()} How would you say that in French?"),
-                (f"Super ! Tu progresses bien. Pour la mission : {next_task.lower()} Tu peux essayer ?",
-                 f"Great! You're progressing well. For the mission: {next_task.lower()} Can you try?"),
-                (f"Bravo pour « {first} » ! Continue, {next_task.lower()} Dis-le en français !",
-                 f"Bravo for '{first}'! Keep going, {next_task.lower()} Say it in French!"),
-            ]
-        else:
-            templates = [
-                (f"Très bien ! Tu as dit « {first} ». Et toi, qu'est-ce que tu aimes faire ?",
-                 f"Very good! You said '{first}'. And you, what do you like to do?"),
-                (f"Super, « {first} » ! Dis-moi, qu'est-ce que tu as fait aujourd'hui ?",
-                 f"Great, '{first}'! Tell me, what did you do today?"),
-                (f"J'adore ! « {first} », c'est bien. Tu peux me dire où tu habites ?",
-                 f"I love it! '{first}', that's good. Can you tell me where you live?"),
-                (f"Bravo pour « {first} » ! Maintenant, parle-moi de ta journée.",
-                 f"Bravo for '{first}'! Now, tell me about your day."),
-                (f"Excellent ! Tu connais « {first} ». Qu'est-ce que tu manges ce soir ?",
-                 f"Excellent! You know '{first}'. What are you eating tonight?"),
-            ]
+        # Natural i+1 conversation — genuine questions, no drilling
+        templates = [
+            (f"Ah, « {first} » ! Moi aussi. Et toi, comment tu t'appelles ?",
+             f"Ah, '{first}'! Me too. And you, what's your name?"),
+            (f"Super, « {first} » ! Moi, j'adore Paris. Et toi, tu habites où ?",
+             f"Great, '{first}'! I love Paris. And you, where do you live?"),
+            (f"Oh, « {first} » — c'est intéressant ! Qu'est-ce que tu fais dans la vie ?",
+             f"Oh, '{first}' — that's interesting! What do you do for a living?"),
+            (f"J'aime bien « {first} » ! Et qu'est-ce que tu aimes manger ?",
+             f"I like '{first}'! And what do you like to eat?"),
+            (f"Ah oui, « {first} » ! Moi, j'aime beaucoup le chocolat. Et toi, qu'est-ce que tu aimes ?",
+             f"Oh yes, '{first}'! I really love chocolate. And you, what do you like?"),
+            (f"Très bien ! « {first} ». Et aujourd'hui, tu as fait quoi ?",
+             f"Very good! '{first}'. And today, what did you do?"),
+        ]
         spoken, hint = random.choice(templates)
 
         return {
