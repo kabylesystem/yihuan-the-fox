@@ -486,11 +486,20 @@ export default function App() {
 
   // Onboarding + mascot overlay
   const [showOnboarding, setShowOnboarding] = useState(!hasCompletedOnboarding);
-  // /landing → start at step 2 (language selection), otherwise step 1
+  // /onboarding → start at step 2 (language selection), otherwise step 1
   const [onboardingStep, setOnboardingStep] = useState(isLandingRoute ? 2 : 1);
   const [mascotOverlay, setMascotOverlay] = useState<{ type: MascotOverlayProps['type']; data?: any } | null>(
     !hasCompletedOnboarding ? { type: 'onboarding' } : null
   );
+
+  // Force-show onboarding when navigating directly to /onboarding
+  useEffect(() => {
+    if (location.pathname === '/onboarding') {
+      setShowOnboarding(true);
+      setOnboardingStep(2);
+      setMascotOverlay({ type: 'onboarding' });
+    }
+  }, [location.pathname]);
   const [canvasFailed, setCanvasFailed] = useState(false);
   const [canvasResetKey, setCanvasResetKey] = useState(0);
   const [linkInspector, setLinkInspector] = useState<{ reason: string; detail: string; evidence: string[] } | null>(null);
@@ -789,13 +798,9 @@ export default function App() {
     [missionDoneCount, missionTasks.length]
   );
 
-  // Dynamic categories — only show categories that have at least 1 neuron
+  // Always show all default categories (grayed-out when empty)
   const dynamicCategories = useMemo(() => {
-    const cats = new Set<Category>();
-    state.neurons.forEach(n => cats.add(n.category));
-    const ordered: (Category | 'all')[] = DEFAULT_CATEGORIES.filter(c => c === 'all' || cats.has(c as Category));
-    if (!ordered.includes('all')) ordered.unshift('all');
-    return ordered;
+    return DEFAULT_CATEGORIES;
   }, [state.neurons]);
 
   // Test data generator
