@@ -6,7 +6,8 @@ import { analyzeInput, checkBackend, isUsingBackend, resetMockState, getMockTurn
 import { onConnectionStatusChange, onStatusStep, onTTS, ConnectionStatus, hardResetSession } from './services/backendService';
 import { Send, Zap, Info, Loader2, Search, Filter, Mic, Clock, X, MessageSquare, User, Bot, ChevronDown, ChevronUp, Plane, RefreshCw, Wifi, WifiOff, CheckCircle2, Circle, Sparkles, LocateFixed, Trash2, Volume2, FlaskConical } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-// Logo is now a CSS radial gradient (black hole with blue glow)
+import { getDailyMissions, evaluateMissionTask as evalTask, MascotOverlay, loadDailyState, saveOnboarding, saveMissionProgress } from './missions';
+import type { MissionWithTasks, MascotOverlayProps } from './missions';
 
 const INITIAL_STATE: NebulaState = {
   neurons: [],
@@ -265,18 +266,26 @@ export default function App() {
   const [hudVisible, setHudVisible] = useState(false);
   const hudTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Gamification state
+  // Gamification + mission state (loaded from localStorage)
+  const savedState = useMemo(() => loadDailyState(), []);
   const [xp, setXp] = useState(0);
   const [cefrLevel, setCefrLevel] = useState('A0');
   const [streak, setStreak] = useState(0);
   const [qualityStreak, setQualityStreak] = useState(0);
   const [combo, setCombo] = useState(0);
-  const [missionIndex, setMissionIndex] = useState(0);
-  const [missionDone, setMissionDone] = useState<Record<string, boolean>>({});
-  const [missionBanner, setMissionBanner] = useState<string | null>(null);
+  const [dailyMinutes, setDailyMinutes] = useState(savedState.dailyMinutes);
+  const [missionIndex, setMissionIndex] = useState(savedState.missionIndex);
+  const [missionDone, setMissionDone] = useState<Record<string, boolean>>(savedState.missionDone);
+  const [missionsCompletedToday, setMissionsCompletedToday] = useState(savedState.missionsCompletedToday);
   const [missionExpanded, setMissionExpanded] = useState(false);
   const [lastLatency, setLastLatency] = useState<{ stt: number; llm: number; total: number } | null>(null);
-  const [levelUpEvent, setLevelUpEvent] = useState<string | null>(null);
+
+  // Onboarding + mascot overlay
+  const [showOnboarding, setShowOnboarding] = useState(!savedState.onboarded);
+  const [onboardingStep, setOnboardingStep] = useState(1);
+  const [mascotOverlay, setMascotOverlay] = useState<{ type: MascotOverlayProps['type']; data?: any } | null>(
+    !savedState.onboarded ? { type: 'onboarding' } : null
+  );
   const [canvasFailed, setCanvasFailed] = useState(false);
   const [canvasResetKey, setCanvasResetKey] = useState(0);
   const [recenterNonce, setRecenterNonce] = useState(0);
@@ -304,84 +313,23 @@ export default function App() {
     [state.neurons]
   );
 
-  const missionDeck = useMemo(() => ([
-    {
-      id: 'm1',
-      title: 'Talk about who you are',
-      objective: 'Say your name and where you live.',
-      starter: `Try saying: "Je m'appelle ... et j'habite à ...".`,
-      reward: 45,
-      targets: fadingTargets.slice(0, 1),
-      tasks: [
-        { id: 'm1_intro', label: 'Say your name in French.' },
-        { id: 'm1_place', label: 'Say where you live.' },
-        { id: 'm1_detail', label: 'Add one extra detail (city, hobby, or job).' },
-      ],
-    },
-    {
-      id: 'm2',
-      title: 'Talk about food you like',
-      objective: 'Say what food you like and why.',
-      starter: `Try saying: "J'aime ... parce que ...".`,
-      reward: 50,
-      targets: fadingTargets.slice(0, 2),
-      tasks: [
-        { id: 'm2_food', label: 'Mention at least one food you like.' },
-        { id: 'm2_reason', label: 'Give a reason (because...).' },
-        { id: 'm2_reuse', label: fadingTargets[0] ? `Reuse this fading word: "${fadingTargets[0]}".` : 'Reuse one previous word.' },
-      ],
-    },
-    {
-      id: 'm3',
-      title: 'Talk about what you did today',
-      objective: 'Describe 2 actions from your day.',
-      starter: `Try saying: "Aujourd'hui, j'ai ... puis j'ai ...".`,
-      reward: 60,
-      targets: fadingTargets.slice(0, 2),
-      tasks: [
-        { id: 'm3_today_action', label: 'Use a time anchor (today / this morning / tonight).' },
-        { id: 'm3_today_time', label: 'Describe at least two actions in sequence.' },
-        { id: 'm3_reuse', label: fadingTargets[0] ? `Reuse this fading word: "${fadingTargets[0]}".` : 'Reuse one previous word.' },
-      ],
-    },
-  ]), [fadingTargets]);
+  // Dynamic daily missions from missions.ts
+  const missionDeck = useMemo(
+    () => getDailyMissions(dailyMinutes, fadingTargets),
+    [dailyMinutes, fadingTargets]
+  );
 
-  const activeMission = missionDeck[missionIndex % missionDeck.length];
+  const activeMission = missionDeck[missionIndex % missionDeck.length] as MissionWithTasks | undefined;
+  const activeMissionSafe = activeMission || { id: 'none', title: 'Free conversation', objective: 'Just talk!', humor: '', reward: 0, tasks: [], keywords: [] };
 
-  const evaluateMissionTask = useCallback((taskId: string, analysis: Message['analysis'] | null, graphState: NebulaState, userText: string) => {
-    const accepted = (analysis?.acceptedUnits || []).map((u) => u.toLowerCase());
-    const quality = analysis?.qualityScore || 0;
-    const lowerText = (userText || '').toLowerCase();
-    const containsTarget = (target: string) => {
-      const t = target.toLowerCase();
-      return accepted.some((u) => u.includes(t) || t.includes(u)) || lowerText.includes(t);
-    };
-    const containsAny = (candidates: string[]) => candidates.some((w) => lowerText.includes(w));
-    const foodWords = ['pizza', 'pâtes', 'pates', 'riz', 'pain', 'fromage', 'poulet', 'salade', 'burger', 'sushi', 'fruit', 'café', 'cafe', 'chocolat', 'poisson', 'viande'];
-
-    switch (taskId) {
-      case 'm1_intro':
-        return containsAny(["je m'appelle", "je suis"]) || accepted.some((u) => u.startsWith('je suis'));
-      case 'm1_place':
-        return containsAny(["j'habite", "j habite", "à paris", "a paris", "en france", "dans"]);
-      case 'm1_detail':
-        return accepted.length >= 2 || quality >= 0.65;
-      case 'm2_food':
-        return containsAny(foodWords);
-      case 'm2_reason':
-        return containsAny(["parce que", "car", "because"]);
-      case 'm2_reuse':
-        return activeMission.targets?.[0] ? containsTarget(activeMission.targets[0]) : accepted.length >= 1;
-      case 'm3_today_action':
-        return containsAny(["aujourd'hui", "aujourdhui", "ce matin", "ce soir", "cet apres", "cette nuit"]);
-      case 'm3_today_time':
-        return containsAny(["puis", "ensuite", "après", "apres", "et puis", "then"]);
-      case 'm3_reuse':
-        return activeMission.targets?.[0] ? containsTarget(activeMission.targets[0]) : accepted.length >= 1;
-      default:
-        return false;
+  // Show mission intro overlay when mission changes (but not on first load if onboarding is showing)
+  const prevMissionIdRef = useRef(activeMissionSafe.id);
+  useEffect(() => {
+    if (activeMissionSafe.id !== prevMissionIdRef.current && !showOnboarding) {
+      prevMissionIdRef.current = activeMissionSafe.id;
+      setMascotOverlay({ type: 'mission_intro', data: activeMissionSafe });
     }
-  }, [combo, qualityStreak, activeMission]);
+  }, [activeMissionSafe.id, showOnboarding]);
 
   const playTtsPayload = useCallback((tts: any) => {
     if (!tts) return;
@@ -525,6 +473,20 @@ export default function App() {
     }
   }, [state.neurons, state.synapses]);
 
+  // Clear justUsed flags after 4 seconds
+  useEffect(() => {
+    const hasJustUsed = state.neurons.some(n => n.justUsed);
+    if (hasJustUsed) {
+      const timer = setTimeout(() => {
+        setState(prev => ({
+          ...prev,
+          neurons: prev.neurons.map(n => ({ ...n, justUsed: false })),
+        }));
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [state.neurons]);
+
   const triggerShootingStar = () => {
     const id = Math.random().toString(36).substr(2, 9);
     setShootingStars(prev => [...prev, id]);
@@ -546,8 +508,8 @@ export default function App() {
   };
 
   const missionTasks = useMemo(() => (
-    activeMission.tasks.map((t) => ({ ...t, done: !!missionDone[t.id] }))
-  ), [activeMission, missionDone]);
+    activeMissionSafe.tasks.map((t) => ({ ...t, done: !!missionDone[t.id] }))
+  ), [activeMissionSafe, missionDone]);
 
   const missionDoneCount = useMemo(
     () => missionTasks.filter((t) => t.done).length,
@@ -587,13 +549,29 @@ export default function App() {
     if (completedMissionRef.current === missionIndex) return;
 
     completedMissionRef.current = missionIndex;
-    const reward = activeMission.reward;
+    const reward = activeMissionSafe.reward;
     setXp((prev) => prev + reward);
-    setMissionBanner(`Mission Complete: ${activeMission.title}`);
-    setTimeout(() => setMissionBanner(null), 2200);
-    setMissionIndex((idx) => (idx + 1) % missionDeck.length);
+
+    // Show mission complete overlay
+    setMascotOverlay({ type: 'mission_complete', data: { title: activeMissionSafe.title } });
+
+    const nextCompleted = missionsCompletedToday + 1;
+    setMissionsCompletedToday(nextCompleted);
+
+    // Check if all daily missions are done
+    const totalDaily = missionDeck.length;
+    if (nextCompleted >= totalDaily) {
+      setTimeout(() => setMascotOverlay({ type: 'daily_done' }), 3200);
+    }
+
+    // Advance to next mission
+    const nextIdx = (missionIndex + 1) % missionDeck.length;
+    setMissionIndex(nextIdx);
     setMissionDone({});
-  }, [missionDoneCount, missionTasks.length, missionIndex, activeMission, missionDeck.length]);
+
+    // Persist progress
+    saveMissionProgress(nextIdx, {}, nextCompleted);
+  }, [missionDoneCount, missionTasks.length, missionIndex, activeMissionSafe, missionDeck.length, missionsCompletedToday]);
 
   // Show HUD with auto-fade
   const showHud = (userText: string, aiText: string, correction: string, analysis: Message['analysis'] | null) => {
@@ -619,16 +597,16 @@ export default function App() {
 
     // Expose mission context for backend AI to use
     (window as any).__echeMissionContext = {
-      title: activeMission.title,
-      objective: activeMission.objective,
-      starter: activeMission.starter,
+      title: activeMissionSafe.title,
+      objective: activeMissionSafe.objective,
+      starter: activeMissionSafe.objective,
       tasks: missionTasks.map(t => ({ label: t.label, done: t.done })),
       done_count: missionDoneCount,
       total: missionTasks.length,
     };
 
     try {
-      const newState = await analyzeInput(input, state, isFlying, inputType);
+      let newState = await analyzeInput(input, state, isFlying, inputType);
       if (
         !newState ||
         !Array.isArray(newState.neurons) ||
@@ -650,16 +628,27 @@ export default function App() {
         }
       }
 
-      setState(newState);
-
-      // Update HUD with the latest conversation turn
+      // Mark existing nodes as justUsed if the learner said them again
       const msgs = newState.messages;
       const lastAi = [...msgs].reverse().find(m => m.role === 'ai' && !m.id.startsWith('nav-'));
       const lastUser = [...msgs].reverse().find(m => m.role === 'user');
-        if (lastUser && lastAi) {
-          // TTS playback is handled by geminiService.ts (onTTS callback + 4s browser fallback)
-          showHud(lastUser.text, lastAi.text, lastAi.correctedForm || '', lastAi.analysis || null);
-        }
+      const justUsedWords = new Set(
+        (lastAi?.analysis?.acceptedUnits || []).map((u: string) => u.toLowerCase())
+      );
+      if (justUsedWords.size > 0) {
+        newState = {
+          ...newState,
+          neurons: newState.neurons.map(n => ({
+            ...n,
+            justUsed: !n.isNew && justUsedWords.has(n.label.toLowerCase()),
+          })),
+        };
+      }
+
+      setState(newState);
+      if (lastUser && lastAi) {
+        showHud(lastUser.text, lastAi.text, lastAi.correctedForm || '', lastAi.analysis || null);
+      }
       const maybeErrorMsg = [...msgs].reverse().find(m => m.role === 'ai')?.text || '';
       const isAudioFailure = inputType === 'audio' && maybeErrorMsg.toLowerCase().startsWith('error:');
       if (isAudioFailure) {
@@ -689,9 +678,8 @@ export default function App() {
       }
       if (lastAi?.analysis?.latencyMs) setLastLatency(lastAi.analysis.latencyMs);
       if (lastAi?.analysis?.level && lastAi.analysis.level !== cefrLevel) {
-        setLevelUpEvent(`${cefrLevel} → ${lastAi.analysis.level}`);
+        setMascotOverlay({ type: 'level_up', data: { old: cefrLevel, new: lastAi.analysis.level } });
         setCefrLevel(lastAi.analysis.level);
-        setTimeout(() => setLevelUpEvent(null), 3000);
       }
 
       const analysis = lastAi?.analysis || null;
@@ -699,8 +687,8 @@ export default function App() {
       setMissionDone((prev) => {
         const next = { ...prev };
         let changed = false;
-        for (const task of activeMission.tasks) {
-          if (!next[task.id] && evaluateMissionTask(task.id, analysis, newState, userText)) {
+        for (const task of activeMissionSafe.tasks) {
+          if (!next[task.id] && evalTask(task.id, activeMissionSafe, analysis?.acceptedUnits || [], userText, quality, fadingTargets)) {
             next[task.id] = true;
             changed = true;
           }
@@ -897,7 +885,7 @@ export default function App() {
       : lastLatency.total <= 4500
         ? 'text-amber-300'
         : 'text-red-300';
-  const liveMissionObjective = (lastAnalysis?.missionHint || activeMission.objective || '').trim();
+  const liveMissionObjective = (lastAnalysis?.missionHint || activeMissionSafe.objective || '').trim();
 
   return (
     <div className="relative w-full h-screen overflow-hidden text-white font-sans bg-[#020510]">
@@ -980,6 +968,9 @@ export default function App() {
               transition={{ delay: 0.15 }}
               className="pointer-events-auto self-start ml-6 relative overflow-hidden bg-white/[0.07] backdrop-blur-xl border border-white/[0.14] p-5 rounded-[28px] w-[500px] max-w-[calc(100vw-3rem)] shadow-[0_16px_50px_rgba(0,0,0,0.35)]"
             >
+              <div className="text-[11px] uppercase tracking-[0.18em] text-white/35 font-semibold mb-1">
+                Mission {Math.min(missionsCompletedToday + 1, missionDeck.length)}/{missionDeck.length} today — {dailyMinutes} min
+              </div>
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div>
                   <motion.p
@@ -987,7 +978,7 @@ export default function App() {
                     animate={{ opacity: 1, y: 0 }}
                     className="text-[32px] text-white leading-[1.06] mt-1 font-semibold"
                   >
-                    {activeMission.title}
+                    {activeMissionSafe.title}
                   </motion.p>
                   <p className="text-[16px] text-white/60 mt-1">{liveMissionObjective}</p>
                 </div>
@@ -1446,51 +1437,34 @@ export default function App() {
       </div>
 
       {/* ── Level Up Celebration ──────────────────────────────────── */}
-      <AnimatePresence>
-        {levelUpEvent && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.5 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 1.5 }}
-            transition={{ duration: 0.5, type: 'spring', damping: 15 }}
-            className="absolute inset-0 z-[60] flex items-center justify-center pointer-events-none"
-          >
-            <div className="text-center">
-              <motion.div
-                initial={{ y: 20 }}
-                animate={{ y: 0 }}
-                className="text-5xl font-bold text-blue-400 mb-2 drop-shadow-[0_0_30px_rgba(52,211,153,0.8)]"
-              >
-                LEVEL UP!
-              </motion.div>
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className="text-2xl text-white/80 font-mono"
-              >
-                {levelUpEvent}
-              </motion.div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ── Mission Complete Banner ───────────────────────────────── */}
-      <AnimatePresence>
-        {missionBanner && (
-          <motion.div
-            initial={{ opacity: 0, y: -20, scale: 0.92 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -12, scale: 0.95 }}
-            transition={{ type: 'spring', stiffness: 170, damping: 18 }}
-            className="absolute top-24 left-1/2 -translate-x-1/2 z-[95] px-5 py-3 rounded-2xl bg-blue-500/15 border border-blue-300/45 backdrop-blur-xl shadow-[0_0_28px_rgba(30,64,175,0.35)]"
-          >
-            <div className="text-[10px] uppercase tracking-[0.2em] text-blue-200/90 font-bold text-center">Quest Update</div>
-            <div className="text-sm text-white font-semibold mt-1 text-center">{missionBanner}</div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* ── Mascot Overlay (onboarding, mission intro, celebrations) ── */}
+      {mascotOverlay && (
+        <MascotOverlay
+          type={mascotOverlay.type}
+          data={mascotOverlay.data}
+          onboardingStep={onboardingStep}
+          onSelectMinutes={(m: number) => {
+            setDailyMinutes(m);
+            setOnboardingStep(3);
+            setMascotOverlay({ type: 'onboarding', data: { minutes: m } });
+          }}
+          onDismiss={() => {
+            if (mascotOverlay.type === 'onboarding') {
+              if (onboardingStep < 3) {
+                setOnboardingStep((s) => s + 1);
+                setMascotOverlay({ type: 'onboarding' });
+              } else {
+                // Onboarding complete
+                saveOnboarding(dailyMinutes);
+                setShowOnboarding(false);
+                setMascotOverlay({ type: 'mission_intro', data: activeMissionSafe });
+              }
+            } else {
+              setMascotOverlay(null);
+            }
+          }}
+        />
+      )}
 
       {/* ── Neuron Detail Modal ──────────────────────────────────────── */}
       <AnimatePresence>

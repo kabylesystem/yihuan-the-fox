@@ -15,6 +15,7 @@ export interface Neuron {
   grammarDna: string;
   isShadow?: boolean;
   isNew?: boolean;
+  justUsed?: boolean; // word was just used by learner in current turn
   lastReviewed: number;
   x?: number;
   y?: number;

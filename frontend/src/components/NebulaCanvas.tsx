@@ -91,6 +91,7 @@ function NeuronNode({ neuron, onClick, isDimmed, isFocused, compactMode }: {
     let scale = pulse * eased;
     if (isFocused) scale *= 1.2;
     if (neuron.isNew) scale *= 1 + Math.sin(time * 4) * 0.1;
+    if (neuron.justUsed) scale *= 1 + Math.sin(time * 6) * 0.15;
 
     meshRef.current.scale.setScalar(scale);
 
@@ -109,6 +110,15 @@ function NeuronNode({ neuron, onClick, isDimmed, isFocused, compactMode }: {
     if (neuron.isNew && !neuron.isShadow) {
       const flashIntensity = 0.6 * (1 - spawnProgress.current) + 0.3;
       mat.emissiveIntensity = flashIntensity + Math.sin(time * 3) * 0.1;
+    }
+
+    // Live pulse glow for just-used words (reactivation)
+    if (neuron.justUsed && !neuron.isNew) {
+      mat.emissive.set('#ffffff');
+      mat.emissiveIntensity = 0.4 + Math.sin(time * 5) * 0.2;
+    } else if (!neuron.isNew) {
+      mat.emissive.set(visualColor);
+      mat.emissiveIntensity = 0.08;
     }
 
     // Ring rotation
