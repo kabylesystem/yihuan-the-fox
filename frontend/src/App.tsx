@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { NebulaCanvas } from './components/NebulaCanvas';
+import { Dashboard } from './components/Dashboard';
 import { Neuron, Synapse, NebulaState, Category, Message } from './types';
 import { analyzeInput, checkBackend, isUsingBackend, resetMockState, getMockTurnIndex, getTotalMockTurns } from './services/geminiService';
 import { onConnectionStatusChange, ConnectionStatus, resetSession } from './services/backendService';
-import { Send, Brain, Zap, Info, Loader2, Search, Filter, Mic, Clock, X, MessageSquare, User, Bot, ChevronDown, ChevronUp, Plane, RefreshCw, Wifi, WifiOff } from 'lucide-react';
+import { Send, Brain, Zap, Info, Loader2, Search, Filter, Mic, Clock, X, MessageSquare, User, Bot, ChevronDown, ChevronUp, Plane, RefreshCw, Wifi, WifiOff, BarChart3, XCircle, FlaskConical } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 const INITIAL_STATE: NebulaState = {
@@ -27,7 +28,278 @@ const INITIAL_STATE: NebulaState = {
   ]
 };
 
-const CATEGORIES: (Category | 'all')[] = ['all', 'work', 'daily', 'travel', 'social', 'academic', 'coding', 'other'];
+// ── Bulk test data generator ─────────────────────────────────────────────
+// Pool covers 7 categories × many sentences. When count > pool size we
+// cycle through with small label variants so we can go up to 1000.
+
+type PoolEntry = { label: string; category: Category; grammarDna: string; type: 'soma' | 'dendrite'; strength: number };
+
+const BASE_POOL: PoolEntry[] = [
+  // Daily (16)
+  { label: "Bonjour, comment ça va ?",            category: 'daily',    grammarDna: 'Greeting',     type: 'soma',     strength: 0.95 },
+  { label: "Je vais bien, merci !",               category: 'daily',    grammarDna: 'Greeting',     type: 'soma',     strength: 0.90 },
+  { label: "Tu habites où ?",                     category: 'daily',    grammarDna: 'Location-Q&A', type: 'soma',     strength: 0.80 },
+  { label: "J'habite à Paris.",                   category: 'daily',    grammarDna: 'Location-Q&A', type: 'soma',     strength: 0.85 },
+  { label: "C'est une belle ville.",              category: 'daily',    grammarDna: 'Description',  type: 'dendrite', strength: 0.60 },
+  { label: "Il fait beau aujourd'hui.",           category: 'daily',    grammarDna: 'Description',  type: 'dendrite', strength: 0.55 },
+  { label: "Je prends le métro.",                 category: 'daily',    grammarDna: 'Activity-Ext', type: 'dendrite', strength: 0.50 },
+  { label: "Où est la boulangerie ?",             category: 'daily',    grammarDna: 'Location-Q&A', type: 'soma',     strength: 0.65 },
+  { label: "Je bois un café le matin.",           category: 'daily',    grammarDna: 'Activity-Ext', type: 'dendrite', strength: 0.58 },
+  { label: "La rue est animée.",                  category: 'daily',    grammarDna: 'Description',  type: 'dendrite', strength: 0.48 },
+  { label: "Je préfère le café au thé.",          category: 'daily',    grammarDna: 'Opinion-Inf',  type: 'dendrite', strength: 0.58 },
+  { label: "J'aime manger des croissants.",       category: 'daily',    grammarDna: 'Activity-Ext', type: 'dendrite', strength: 0.58 },
+  { label: "On fait les courses ensemble.",       category: 'daily',    grammarDna: 'Activity-Ext', type: 'dendrite', strength: 0.52 },
+  { label: "Le supermarché est fermé.",           category: 'daily',    grammarDna: 'Description',  type: 'dendrite', strength: 0.44 },
+  { label: "À demain !",                          category: 'daily',    grammarDna: 'Greeting',     type: 'soma',     strength: 0.72 },
+  { label: "Bonne journée !",                     category: 'daily',    grammarDna: 'Greeting',     type: 'soma',     strength: 0.70 },
+  // Social (16)
+  { label: "Comment tu t'appelles ?",             category: 'social',   grammarDna: 'Identity-Q&A', type: 'soma',     strength: 0.88 },
+  { label: "Je m'appelle Marie.",                 category: 'social',   grammarDna: 'Identity-Q&A', type: 'soma',     strength: 0.92 },
+  { label: "Enchanté(e) !",                       category: 'social',   grammarDna: 'Greeting',     type: 'soma',     strength: 0.75 },
+  { label: "Moi aussi, j'adore ça !",             category: 'social',   grammarDna: 'Opinion-Inf',  type: 'dendrite', strength: 0.55 },
+  { label: "On se retrouve à quelle heure ?",     category: 'social',   grammarDna: 'Time-Q&A',     type: 'soma',     strength: 0.45 },
+  { label: "Je suis libre ce soir.",              category: 'social',   grammarDna: 'Time-Q&A',     type: 'dendrite', strength: 0.40 },
+  { label: "J'aime beaucoup le cinéma.",          category: 'social',   grammarDna: 'Opinion-Inf',  type: 'soma',     strength: 0.82 },
+  { label: "Qu'est-ce que tu aimes faire ?",      category: 'social',   grammarDna: 'Opinion-Inf',  type: 'soma',     strength: 0.76 },
+  { label: "Tu veux venir à la fête ?",           category: 'social',   grammarDna: 'Opinion-Inf',  type: 'soma',     strength: 0.68 },
+  { label: "On est de bons amis.",                category: 'social',   grammarDna: 'Description',  type: 'dendrite', strength: 0.50 },
+  { label: "Je t'envoie un message.",             category: 'social',   grammarDna: 'Activity-Ext', type: 'dendrite', strength: 0.45 },
+  { label: "C'était une super soirée !",          category: 'social',   grammarDna: 'Past-Tense',   type: 'dendrite', strength: 0.55 },
+  { label: "Tu as l'air fatigué.",                category: 'social',   grammarDna: 'Description',  type: 'dendrite', strength: 0.40 },
+  { label: "On se connaît depuis longtemps.",     category: 'social',   grammarDna: 'Past-Tense',   type: 'dendrite', strength: 0.42 },
+  { label: "À bientôt !",                         category: 'social',   grammarDna: 'Greeting',     type: 'soma',     strength: 0.78 },
+  { label: "Merci beaucoup !",                    category: 'social',   grammarDna: 'Greeting',     type: 'soma',     strength: 0.85 },
+  // Travel (16)
+  { label: "Où est la gare ?",                    category: 'travel',   grammarDna: 'Location-Q&A', type: 'soma',     strength: 0.78 },
+  { label: "Un billet pour Lyon, s'il vous plaît.", category: 'travel', grammarDna: 'Request',      type: 'soma',     strength: 0.70 },
+  { label: "À quelle heure part le train ?",      category: 'travel',   grammarDna: 'Time-Q&A',     type: 'soma',     strength: 0.65 },
+  { label: "J'ai réservé une chambre.",           category: 'travel',   grammarDna: 'Past-Tense',   type: 'dendrite', strength: 0.48 },
+  { label: "C'est combien la nuit ?",             category: 'travel',   grammarDna: 'Request',      type: 'dendrite', strength: 0.42 },
+  { label: "Je voudrais visiter le Louvre.",      category: 'travel',   grammarDna: 'Opinion-Inf',  type: 'soma',     strength: 0.60 },
+  { label: "J'aime visiter les musées.",          category: 'travel',   grammarDna: 'Activity-Ext', type: 'dendrite', strength: 0.62 },
+  { label: "Le vol est à 14h.",                   category: 'travel',   grammarDna: 'Time-Q&A',     type: 'soma',     strength: 0.58 },
+  { label: "L'hôtel est très confortable.",       category: 'travel',   grammarDna: 'Description',  type: 'dendrite', strength: 0.52 },
+  { label: "Je cherche un restaurant.",           category: 'travel',   grammarDna: 'Activity-Ext', type: 'soma',     strength: 0.66 },
+  { label: "La carte, s'il vous plaît.",          category: 'travel',   grammarDna: 'Request',      type: 'soma',     strength: 0.72 },
+  { label: "C'est magnifique ici !",              category: 'travel',   grammarDna: 'Description',  type: 'dendrite', strength: 0.70 },
+  { label: "Je suis perdu(e).",                   category: 'travel',   grammarDna: 'Description',  type: 'soma',     strength: 0.55 },
+  { label: "Pouvez-vous m'aider ?",               category: 'travel',   grammarDna: 'Request',      type: 'soma',     strength: 0.65 },
+  { label: "Combien de temps dure le trajet ?",   category: 'travel',   grammarDna: 'Time-Q&A',     type: 'soma',     strength: 0.60 },
+  { label: "Je reviens dans une semaine.",        category: 'travel',   grammarDna: 'Time-Q&A',     type: 'dendrite', strength: 0.45 },
+  // Work (16)
+  { label: "J'ai une réunion à 10h.",             category: 'work',     grammarDna: 'Time-Q&A',     type: 'soma',     strength: 0.72 },
+  { label: "Pouvez-vous m'envoyer le rapport ?",  category: 'work',     grammarDna: 'Request',      type: 'soma',     strength: 0.68 },
+  { label: "Je travaille en télétravail.",        category: 'work',     grammarDna: 'Activity-Ext', type: 'dendrite', strength: 0.55 },
+  { label: "Le projet est en bonne voie.",        category: 'work',     grammarDna: 'Description',  type: 'dendrite', strength: 0.45 },
+  { label: "On a atteint nos objectifs.",         category: 'work',     grammarDna: 'Past-Tense',   type: 'dendrite', strength: 0.38 },
+  { label: "Je dois finir avant vendredi.",       category: 'work',     grammarDna: 'Time-Q&A',     type: 'soma',     strength: 0.62 },
+  { label: "La présentation est prête.",          category: 'work',     grammarDna: 'Description',  type: 'soma',     strength: 0.58 },
+  { label: "On manque de ressources.",            category: 'work',     grammarDna: 'Description',  type: 'dendrite', strength: 0.42 },
+  { label: "Je prends des congés la semaine prochaine.", category: 'work', grammarDna: 'Time-Q&A', type: 'dendrite', strength: 0.40 },
+  { label: "Le client est satisfait.",            category: 'work',     grammarDna: 'Description',  type: 'dendrite', strength: 0.50 },
+  { label: "On travaille en équipe.",             category: 'work',     grammarDna: 'Activity-Ext', type: 'soma',     strength: 0.60 },
+  { label: "Il faut revoir le budget.",           category: 'work',     grammarDna: 'Opinion-Inf',  type: 'soma',     strength: 0.52 },
+  { label: "La réunion est reportée.",            category: 'work',     grammarDna: 'Past-Tense',   type: 'dendrite', strength: 0.38 },
+  { label: "Bonne continuation !",               category: 'work',     grammarDna: 'Greeting',     type: 'soma',     strength: 0.65 },
+  { label: "Je suis en déplacement.",             category: 'work',     grammarDna: 'Activity-Ext', type: 'dendrite', strength: 0.48 },
+  { label: "Le délai est serré.",                 category: 'work',     grammarDna: 'Description',  type: 'dendrite', strength: 0.45 },
+  // Academic (16)
+  { label: "Je comprends la grammaire.",          category: 'academic', grammarDna: 'Opinion-Inf',  type: 'soma',     strength: 0.70 },
+  { label: "Qu'est-ce que ça veut dire ?",        category: 'academic', grammarDna: 'Identity-Q&A', type: 'soma',     strength: 0.65 },
+  { label: "Je dois réviser mes notes.",          category: 'academic', grammarDna: 'Activity-Ext', type: 'dendrite', strength: 0.50 },
+  { label: "L'examen est difficile.",             category: 'academic', grammarDna: 'Description',  type: 'dendrite', strength: 0.42 },
+  { label: "Je voudrais apprendre le piano.",     category: 'academic', grammarDna: 'Opinion-Inf',  type: 'dendrite', strength: 0.44 },
+  { label: "Le professeur explique bien.",        category: 'academic', grammarDna: 'Description',  type: 'dendrite', strength: 0.55 },
+  { label: "Je lis beaucoup de livres.",          category: 'academic', grammarDna: 'Activity-Ext', type: 'soma',     strength: 0.62 },
+  { label: "On a un contrôle demain.",            category: 'academic', grammarDna: 'Time-Q&A',     type: 'soma',     strength: 0.58 },
+  { label: "J'ai besoin d'aide.",                 category: 'academic', grammarDna: 'Request',      type: 'soma',     strength: 0.60 },
+  { label: "C'est une bonne question.",           category: 'academic', grammarDna: 'Description',  type: 'dendrite', strength: 0.48 },
+  { label: "Je prends des cours particuliers.",   category: 'academic', grammarDna: 'Activity-Ext', type: 'dendrite', strength: 0.45 },
+  { label: "La bibliothèque est ouverte.",        category: 'academic', grammarDna: 'Description',  type: 'dendrite', strength: 0.40 },
+  { label: "Je cherche des ressources en ligne.", category: 'academic', grammarDna: 'Activity-Ext', type: 'soma',     strength: 0.52 },
+  { label: "Mon niveau s'améliore.",              category: 'academic', grammarDna: 'Past-Tense',   type: 'dendrite', strength: 0.55 },
+  { label: "Je participe en classe.",             category: 'academic', grammarDna: 'Activity-Ext', type: 'dendrite', strength: 0.50 },
+  { label: "L'apprentissage prend du temps.",     category: 'academic', grammarDna: 'Description',  type: 'dendrite', strength: 0.42 },
+  // Coding (16)
+  { label: "J'écris du code en Python.",          category: 'coding',   grammarDna: 'Activity-Ext', type: 'soma',     strength: 0.80 },
+  { label: "Il y a un bug dans le programme.",    category: 'coding',   grammarDna: 'Description',  type: 'soma',     strength: 0.75 },
+  { label: "Je fais une pull request.",           category: 'coding',   grammarDna: 'Activity-Ext', type: 'dendrite', strength: 0.60 },
+  { label: "Le déploiement est en cours.",        category: 'coding',   grammarDna: 'Past-Tense',   type: 'dendrite', strength: 0.50 },
+  { label: "J'utilise React et TypeScript.",      category: 'coding',   grammarDna: 'Activity-Ext', type: 'dendrite', strength: 0.55 },
+  { label: "Les tests passent au vert.",          category: 'coding',   grammarDna: 'Past-Tense',   type: 'dendrite', strength: 0.62 },
+  { label: "Je revois le code.",                  category: 'coding',   grammarDna: 'Activity-Ext', type: 'soma',     strength: 0.68 },
+  { label: "La documentation est à jour.",        category: 'coding',   grammarDna: 'Description',  type: 'dendrite', strength: 0.48 },
+  { label: "On refactorise l'architecture.",      category: 'coding',   grammarDna: 'Activity-Ext', type: 'soma',     strength: 0.72 },
+  { label: "Il faut optimiser les requêtes.",     category: 'coding',   grammarDna: 'Opinion-Inf',  type: 'soma',     strength: 0.65 },
+  { label: "Le serveur répond en 50ms.",          category: 'coding',   grammarDna: 'Description',  type: 'dendrite', strength: 0.58 },
+  { label: "Je configure l'environnement.",       category: 'coding',   grammarDna: 'Activity-Ext', type: 'dendrite', strength: 0.52 },
+  { label: "L'API renvoie une erreur 404.",       category: 'coding',   grammarDna: 'Description',  type: 'soma',     strength: 0.70 },
+  { label: "On automatise les déploiements.",     category: 'coding',   grammarDna: 'Activity-Ext', type: 'soma',     strength: 0.75 },
+  { label: "Le code est bien structuré.",         category: 'coding',   grammarDna: 'Description',  type: 'dendrite', strength: 0.55 },
+  { label: "Je fais du pair programming.",        category: 'coding',   grammarDna: 'Activity-Ext', type: 'dendrite', strength: 0.60 },
+  // Other (16)
+  { label: "Quelle belle journée !",              category: 'other',    grammarDna: 'Description',  type: 'soma',     strength: 0.68 },
+  { label: "Je ne comprends pas.",                category: 'other',    grammarDna: 'Identity-Q&A', type: 'soma',     strength: 0.72 },
+  { label: "Pouvez-vous répéter ?",               category: 'other',    grammarDna: 'Request',      type: 'soma',     strength: 0.75 },
+  { label: "C'est intéressant.",                  category: 'other',    grammarDna: 'Description',  type: 'dendrite', strength: 0.55 },
+  { label: "Je suis d'accord.",                   category: 'other',    grammarDna: 'Opinion-Inf',  type: 'dendrite', strength: 0.50 },
+  { label: "Pas de problème !",                   category: 'other',    grammarDna: 'Greeting',     type: 'soma',     strength: 0.65 },
+  { label: "Il y a quelque chose qui ne va pas.", category: 'other',    grammarDna: 'Description',  type: 'soma',     strength: 0.60 },
+  { label: "Je dois y aller.",                    category: 'other',    grammarDna: 'Activity-Ext', type: 'dendrite', strength: 0.48 },
+  { label: "C'est difficile à expliquer.",        category: 'other',    grammarDna: 'Description',  type: 'dendrite', strength: 0.42 },
+  { label: "On verra plus tard.",                 category: 'other',    grammarDna: 'Time-Q&A',     type: 'dendrite', strength: 0.38 },
+  { label: "Je ne sais pas encore.",              category: 'other',    grammarDna: 'Identity-Q&A', type: 'dendrite', strength: 0.40 },
+  { label: "Ça dépend du contexte.",              category: 'other',    grammarDna: 'Description',  type: 'dendrite', strength: 0.45 },
+  { label: "C'est à voir.",                       category: 'other',    grammarDna: 'Opinion-Inf',  type: 'dendrite', strength: 0.35 },
+  { label: "Bonne chance !",                      category: 'other',    grammarDna: 'Greeting',     type: 'soma',     strength: 0.62 },
+  { label: "Je réfléchis.",                       category: 'other',    grammarDna: 'Activity-Ext', type: 'dendrite', strength: 0.38 },
+  { label: "D'accord, je comprends.",             category: 'other',    grammarDna: 'Greeting',     type: 'soma',     strength: 0.58 },
+];
+
+// Max count for the test generator
+const TEST_POOL_MAX = 1000;
+
+// Build a pool up to `count` entries by cycling BASE_POOL.
+// Entries are interleaved across categories (round-robin deal) so the
+// streaming animation looks like a real mixed conversation — not one
+// category finishing before the next starts.
+function buildTestPool(count: number): PoolEntry[] {
+  // Group BASE_POOL by category and shuffle each group independently
+  const byCategory = new Map<string, PoolEntry[]>();
+  for (const entry of BASE_POOL) {
+    if (!byCategory.has(entry.category)) byCategory.set(entry.category, []);
+    byCategory.get(entry.category)!.push({ ...entry });
+  }
+
+  // Fisher-Yates shuffle each category deck
+  function shuffleDeck<T>(arr: T[]): T[] {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+  for (const deck of byCategory.values()) shuffleDeck(deck);
+
+  // Round-robin interleave: deal one card from each category in turn.
+  // When a deck runs out on repeated passes, vary strength to simulate
+  // spaced-repetition re-encounters (no label suffixes).
+  const decks = [...byCategory.values()];
+  const cursors = new Array(decks.length).fill(0);
+  const passes  = new Array(decks.length).fill(0);
+  const result: PoolEntry[] = [];
+
+  while (result.length < count) {
+    for (let d = 0; d < decks.length; d++) {
+      if (result.length >= count) break;
+      if (cursors[d] >= decks[d].length) {
+        // Deck exhausted — reshuffle and start another pass
+        shuffleDeck(decks[d]);
+        cursors[d] = 0;
+        passes[d]++;
+      }
+      const entry = decks[d][cursors[d]++];
+      const jitter = (Math.random() - 0.5) * 0.15;
+      result.push({
+        ...entry,
+        strength: Math.min(1, Math.max(0.1, entry.strength + jitter - passes[d] * 0.05)),
+      });
+    }
+  }
+  return result;
+}
+
+// ── Chat message templates per category for streaming simulation ─────────
+const CHAT_TEMPLATES: Record<string, string[]> = {
+  daily:    ["J'ai dit « {label} » ce matin.", "Aujourd'hui j'ai pratiqué : « {label} »", "Phrase du jour : « {label} »"],
+  social:   ["En conversation j'ai utilisé « {label} ».", "Nouveau pattern social : « {label} »", "Discussion sympa avec « {label} »"],
+  travel:   ["En voyage j'ai dit « {label} ».", "Utile à l'aéroport : « {label} »", "À la gare : « {label} »"],
+  work:     ["Au bureau : « {label} »", "En réunion j'ai dit « {label} ».", "Email professionnel : « {label} »"],
+  academic: ["En cours : « {label} »", "Pour les études : « {label} »", "À l'examen : « {label} »"],
+  coding:   ["En code review : « {label} »", "Au stand-up : « {label} »", "Dans le README : « {label} »"],
+  other:    ["J'ai appris : « {label} »", "Nouvelle expression : « {label} »", "À retenir : « {label} »"],
+};
+
+function generateTestData(count: number): { neurons: Neuron[]; synapses: Synapse[] } {
+  const pool = buildTestPool(count);
+
+  const neurons: Neuron[] = pool.map((n, i) => ({
+    id: `test_${i}_${i}`,
+    label: n.label,
+    type: n.type,
+    potential: n.strength,
+    strength: n.strength,
+    usageCount: Math.ceil(n.strength * 8),
+    category: n.category,
+    grammarDna: n.grammarDna,
+    isShadow: n.strength < 0.3,
+    lastReviewed: Date.now() - Math.floor(Math.random() * 86400000),
+  }));
+
+  // ── Neural-web synapses (random graph, not ring/chain) ───────────────
+  // Each node randomly connects to a handful of others in its category
+  // (like real neural dendrites reaching out), plus a few cross-category
+  // "long-range" bridges between soma anchor nodes.
+  const byCategory = new Map<string, Neuron[]>();
+  for (const n of neurons) {
+    if (!byCategory.has(n.category)) byCategory.set(n.category, []);
+    byCategory.get(n.category)!.push(n);
+  }
+
+  const synSet = new Set<string>();
+  const synapses: Synapse[] = [];
+
+  function addSyn(src: string, tgt: string, type: 'logical' | 'derivation', str: number) {
+    if (src === tgt) return;
+    const key = src < tgt ? `${src}|${tgt}` : `${tgt}|${src}`;
+    if (synSet.has(key)) return;
+    synSet.add(key);
+    synapses.push({ source: src, target: tgt, strength: str, type });
+  }
+
+  // Fisher-Yates shuffle (pure random, no index-wrap ring)
+  function shuffle<T>(arr: T[]): T[] {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  for (const [, group] of byCategory) {
+    const g = group.length;
+    // Each node connects to 2–5 randomly chosen peers (not positional neighbours)
+    const degree = Math.min(5, Math.max(2, Math.round(Math.log2(g) + 1)));
+    for (const node of group) {
+      const candidates = shuffle(group.filter(n => n.id !== node.id)).slice(0, degree);
+      for (const peer of candidates) {
+        // soma→dendrite = logical, dendrite→dendrite = derivation
+        const type: 'logical' | 'derivation' =
+          node.type === 'soma' && peer.type === 'dendrite' ? 'logical' : 'derivation';
+        addSyn(node.id, peer.id, type, 0.4 + Math.random() * 0.6);
+      }
+    }
+  }
+
+  // Cross-category long-range bridges (soma → random soma in another category)
+  const allCats = [...byCategory.keys()];
+  for (const cat of allCats) {
+    const somas = byCategory.get(cat)!.filter(n => n.type === 'soma');
+    const otherCats = allCats.filter(c => c !== cat);
+    if (otherCats.length === 0 || somas.length === 0) continue;
+    const bridgeCount = Math.max(1, Math.ceil(somas.length * 0.15));
+    for (let b = 0; b < bridgeCount; b++) {
+      const src = somas[Math.floor(Math.random() * somas.length)];
+      const tgtCat = otherCats[Math.floor(Math.random() * otherCats.length)];
+      const tgtGroup = byCategory.get(tgtCat)!;
+      const tgt = tgtGroup[Math.floor(Math.random() * tgtGroup.length)];
+      addSyn(src.id, tgt.id, 'derivation', 0.2 + Math.random() * 0.35);
+    }
+  }
+
+  return { neurons, synapses };
+}
 
 // ── Audio helpers ────────────────────────────────────────────────────────
 
@@ -59,13 +331,148 @@ export default function App() {
   const [shootingStars, setShootingStars] = useState<string[]>([]);
   const [textInput, setTextInput] = useState('');
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
-  const [isDemoMode, setIsDemoMode] = useState(false);
+  const [isDemoMode, setIsDemoMode] = useState(true);
   const [demoComplete, setDemoComplete] = useState(false);
+  const [showDashboard, setShowDashboard] = useState(false);
+  const [showTestPanel, setShowTestPanel] = useState(false);
+  const [testCount, setTestCount] = useState(50);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const streamIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // IDs of neurons that were just added this tick (start dimmed)
+  const [streamingNewIds, setStreamingNewIds] = useState<Set<string>>(new Set());
+  // IDs of already-existing neurons that are referenced by a brand-new synapse (lit up)
+  const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set());
+  const highlightClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+
+  // ── Dynamic categories derived from actual neurons ───────────────────
+  const dynamicCategories = useMemo<('all' | Category)[]>(() => {
+    if (state.neurons.length === 0) return ['all'];
+    const found = [...new Set(state.neurons.map(n => n.category))] as Category[];
+    // Sort by frequency descending
+    const freq = found.sort((a, b) =>
+      state.neurons.filter(n => n.category === b).length -
+      state.neurons.filter(n => n.category === a).length
+    );
+    return ['all', ...freq];
+  }, [state.neurons]);
+
+  // ── Generate bulk test data with streaming animation ─────────────────
+  const handleGenerateTest = useCallback((count: number) => {
+    // Stop any previous stream
+    if (streamIntervalRef.current) {
+      clearInterval(streamIntervalRef.current);
+      streamIntervalRef.current = null;
+    }
+    resetMockState();
+    setDemoComplete(false);
+    setShowTestPanel(false);
+    setShowChat(true);
+    setFilterCategory('all');
+    setIsStreaming(true);
+
+    const { neurons: allNeurons, synapses: allSynapses } = generateTestData(count);
+
+    // Kick off with initial AI message
+    const startMsg: Message = {
+      id: `stream-start-${Date.now()}`,
+      role: 'ai',
+      text: `⚡ Starting simulation — generating ${allNeurons.length} neurons across ${[...new Set(allNeurons.map(n => n.category))].join(', ')}…`,
+      timestamp: Date.now(),
+    };
+    setState({ neurons: [], synapses: [], messages: [...INITIAL_STATE.messages, startMsg] });
+
+    // Stream: add a batch of neurons every interval
+    // Larger counts get bigger batches to finish in reasonable time
+    const batchSize = Math.max(1, Math.ceil(count / 80));  // ~80 steps total
+    const intervalMs = count <= 100 ? 80 : count <= 300 ? 60 : 40;
+    let cursor = 0;
+
+    streamIntervalRef.current = setInterval(() => {
+      cursor += batchSize;
+      const prevSlice = allNeurons.slice(0, Math.min(cursor - batchSize, allNeurons.length));
+      const prevIds = new Set(prevSlice.map(n => n.id));
+      const slice = allNeurons.slice(0, Math.min(cursor, allNeurons.length));
+      const sliceIds = new Set(slice.map(n => n.id));
+      const synSlice = allSynapses.filter(s => sliceIds.has(s.source) && sliceIds.has(s.target));
+
+      // New neurons added this tick
+      const newBatch = allNeurons.slice(cursor - batchSize, Math.min(cursor, allNeurons.length));
+      const newBatchIds = new Set(newBatch.map(n => n.id));
+
+      // Old neurons that are referenced by a new synapse (source or target was already existing)
+      const highlighted = new Set<string>();
+      for (const s of synSlice) {
+        const srcIsNew = newBatchIds.has(s.source);
+        const tgtIsNew = newBatchIds.has(s.target);
+        // Cross-batch synapse: one end is old, one is new → light up the old end
+        if (srcIsNew && prevIds.has(s.target)) highlighted.add(s.target);
+        if (tgtIsNew && prevIds.has(s.source)) highlighted.add(s.source);
+      }
+
+      setStreamingNewIds(newBatchIds);
+      setHighlightedIds(highlighted);
+
+      // Clear the highlight flash after 1.2× the interval so it fades before the next tick
+      if (highlightClearRef.current) clearTimeout(highlightClearRef.current);
+      highlightClearRef.current = setTimeout(() => {
+        setStreamingNewIds(new Set());
+        setHighlightedIds(new Set());
+      }, intervalMs * 1.5);
+
+      // Generate a chat message for the newly added batch
+      const sampleNode = newBatch[0];
+      const templates = CHAT_TEMPLATES[sampleNode?.category ?? 'other'] ?? CHAT_TEMPLATES['other'];
+      const tpl = templates[Math.floor(Math.random() * templates.length)];
+      const chatText = tpl.replace('{label}', sampleNode?.label ?? '');
+
+      const newMsg: Message = {
+        id: `stream-${cursor}-${Date.now()}`,
+        role: cursor % 6 < 3 ? 'ai' : 'user',
+        text: chatText,
+        timestamp: Date.now(),
+        analysis: cursor % 3 === 0 ? {
+          vocabulary: newBatch.slice(0, 3).map(n => ({ word: n.label, translation: '', type: n.grammarDna, isNew: true })),
+          newElements: [...new Set(newBatch.map(n => n.category))],
+          level: 'A1–A2',
+          progress: `${slice.length}/${allNeurons.length} neurons connected, ${synSlice.length} synapses active.`,
+        } : undefined,
+      };
+
+      setState(prev => ({
+        neurons: slice,
+        synapses: synSlice,
+        messages: [...prev.messages, newMsg],
+      }));
+
+      if (cursor >= allNeurons.length) {
+        clearInterval(streamIntervalRef.current!);
+        streamIntervalRef.current = null;
+        setIsStreaming(false);
+        setStreamingNewIds(new Set());
+        setHighlightedIds(new Set());
+        const doneMsg: Message = {
+          id: `stream-done-${Date.now()}`,
+          role: 'ai',
+          text: `✓ Nebula complete — ${allNeurons.length} neurons, ${allSynapses.length} synapses across ${[...new Set(allNeurons.map(n => n.category))].length} categories. Explore & filter!`,
+          timestamp: Date.now(),
+        };
+        setState(prev => ({ ...prev, messages: [...prev.messages, doneMsg] }));
+      }
+    }, intervalMs);
+  }, []);
+
+  // Stop streaming on unmount
+  useEffect(() => {
+    return () => {
+      if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
+      if (highlightClearRef.current) clearTimeout(highlightClearRef.current);
+    };
+  }, []);
 
   // ── Initialize: check backend availability ───────────────────────────
   useEffect(() => {
@@ -190,6 +597,12 @@ export default function App() {
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
         chunksRef.current = [];
 
+        // In demo mode the mic is decorative — don't consume a turn on stop
+        if (isDemoMode) {
+          handleSend('[mock-advance]');
+          return;
+        }
+
         if (blob.size > 0) {
           try {
             const base64Audio = await blobToBase64(blob);
@@ -204,6 +617,7 @@ export default function App() {
       mediaRecorder.start(100);
       setIsListening(true);
     } catch {
+      // Mic not available — in demo mode just advance the turn directly
       if (isDemoMode) {
         handleSend('[mock-advance]');
       }
@@ -232,12 +646,31 @@ export default function App() {
 
   // ── Reset session ────────────────────────────────────────────────────
   const handleReset = async () => {
+    // Stop any active streaming
+    if (streamIntervalRef.current) {
+      clearInterval(streamIntervalRef.current);
+      streamIntervalRef.current = null;
+      setIsStreaming(false);
+    }
+    // Stop any active recording first
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    setIsListening(false);
+
     if (isUsingBackend()) {
       await resetSession();
     }
     resetMockState();
     setState(INITIAL_STATE);
     setDemoComplete(false);
+    setSelectedNeuron(null);
+    setSearchQuery('');
   };
 
   const handleNeuronClick = useCallback((neuron: Neuron) => {
@@ -283,6 +716,8 @@ export default function App() {
           shootingStars={shootingStars}
           onShootingStarComplete={handleShootingStarComplete}
           isFlying={isFlying}
+          streamingNewIds={streamingNewIds}
+          highlightedIds={highlightedIds}
         />
 
         {/* UI Overlay */}
@@ -334,7 +769,7 @@ export default function App() {
                       className="overflow-hidden"
                     >
                       <div className="grid grid-cols-1 gap-2">
-                        {CATEGORIES.map(cat => (
+                        {dynamicCategories.map(cat => (
                           <button
                             key={cat}
                             onClick={() => setFilterCategory(cat)}
@@ -445,15 +880,98 @@ export default function App() {
                       <MessageSquare size={20} />
                     </button>
                   )}
-                  {(demoComplete || state.messages.length > 2) && (
+                  <button
+                    onClick={() => setShowDashboard(!showDashboard)}
+                    className={`p-2 rounded-full border transition-all ${
+                      showDashboard
+                        ? 'bg-amber-500/20 border-amber-500/50 text-amber-400'
+                        : 'bg-black/40 border-white/10 text-white/60 hover:bg-white/10'
+                    }`}
+                    title="View Holo-Galaxy Dashboard"
+                  >
+                    <BarChart3 size={20} />
+                  </button>
+                  {/* Test Data Generator button */}
+                  <div className="relative">
                     <button
-                      onClick={handleReset}
-                      className="p-2 rounded-full border transition-all bg-black/40 border-white/10 text-white/60 hover:bg-white/10"
-                      title="Reset session"
+                      onClick={() => setShowTestPanel(p => !p)}
+                      className={`p-2 rounded-full border transition-all ${
+                        showTestPanel
+                          ? 'bg-violet-500/20 border-violet-500/50 text-violet-400'
+                          : 'bg-black/40 border-white/10 text-white/60 hover:bg-white/10'
+                      }`}
+                      title="Generate test data"
                     >
-                      <RefreshCw size={18} />
+                      <FlaskConical size={20} />
                     </button>
-                  )}
+                    <AnimatePresence>
+                      {showTestPanel && (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.9, y: -8 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.9, y: -8 }}
+                          className="absolute right-0 top-12 w-64 bg-black/90 backdrop-blur-xl border border-violet-500/30 rounded-2xl p-4 shadow-2xl z-50"
+                        >
+                          <div className="flex items-center gap-2 mb-3">
+                            <FlaskConical size={14} className="text-violet-400" />
+                            <span className="text-xs font-bold uppercase tracking-widest text-violet-300">Test Data Generator</span>
+                          </div>
+                          <p className="text-[10px] text-white/40 mb-4 leading-relaxed">
+                            Auto-generate realistic French learning neurons across multiple categories. Context Filter will update dynamically.
+                          </p>
+                          {isStreaming && (
+                            <div className="flex items-center gap-2 mb-3 text-[10px] text-violet-300">
+                              <span className="animate-pulse">●</span> Streaming in progress…
+                            </div>
+                          )}
+                          <div className="mb-4">
+                            <div className="flex justify-between text-[10px] text-white/50 mb-2 uppercase tracking-wider">
+                              <span>Neuron count</span>
+                              <span className="text-violet-400 font-mono font-bold">{testCount}</span>
+                            </div>
+                            <input
+                              type="range" min={10} max={TEST_POOL_MAX} step={10}
+                              value={testCount}
+                              onChange={e => setTestCount(+e.target.value)}
+                              className="w-full accent-violet-500 h-1 bg-white/10 rounded-full appearance-none cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[9px] text-white/20 mt-1">
+                              <span>10</span><span>{TEST_POOL_MAX} (max)</span>
+                            </div>
+                          </div>
+                          {/* Quick presets */}
+                          <div className="grid grid-cols-4 gap-1.5 mb-4">
+                            {[50, 200, 500, TEST_POOL_MAX].map(n => (
+                              <button key={n}
+                                onClick={() => setTestCount(n)}
+                                className={`text-[9px] py-1 rounded-lg border transition-all uppercase tracking-wider font-bold ${
+                                  testCount === n
+                                    ? 'bg-violet-500/20 border-violet-500/40 text-violet-300'
+                                    : 'bg-white/5 border-white/10 text-white/30 hover:bg-white/10'
+                                }`}
+                              >
+                                {n === TEST_POOL_MAX ? '1k' : n}
+                              </button>
+                            ))}
+                          </div>
+                          <button
+                            onClick={() => handleGenerateTest(testCount)}
+                            disabled={isStreaming}
+                            className="w-full py-2.5 bg-violet-500 hover:bg-violet-400 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(139,92,246,0.3)]"
+                          >
+                            {isStreaming ? '⏳ Generating…' : '✦ Generate Nebula'}
+                          </button>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                  <button
+                    onClick={handleReset}
+                    className="p-2 rounded-full border transition-all bg-black/40 border-white/10 text-white/60 hover:bg-white/10"
+                    title="Reset session"
+                  >
+                    <RefreshCw size={18} />
+                  </button>
                 </div>
               </div>
             </div>
@@ -787,6 +1305,9 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Dashboard Modal */}
+      <Dashboard isOpen={showDashboard} onClose={() => setShowDashboard(false)} />
     </div>
   );
 }

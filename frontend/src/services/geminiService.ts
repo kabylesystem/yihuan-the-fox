@@ -10,126 +10,174 @@
 import { NebulaState, Category } from '../types';
 import * as backend from './backendService';
 
-// ── Mock data (French learning, matches backend mock_data.py) ────────────
+// ── Mock data (French learning — sentence/phrase level nodes) ─────────────
+//
+// Design principles:
+//  • Every node is a FULL SENTENCE or PHRASE, never an isolated word.
+//  • Soma nodes  = core sentence patterns the user is actively building.
+//  • Dendrite nodes = scenario extensions / derivations from a soma.
+//  • Link types:
+//      prerequisite       – B cannot exist without knowing A first
+//      conjugation_pair   – question ↔ answer mirror (tu habites / j'habite)
+//      semantic_extension – same topic, new scenario (park → café → museum)
+//      reactivation       – old structure recycled in a new context
+//  • grammarDna drives the 3-D clustering:
+//      "Greeting"         – social openers
+//      "Identity-Q&A"     – name / origin question-answer pairs
+//      "Location-Q&A"     – where question-answer pairs
+//      "Opinion-Inf"      – j'aime / je voudrais + infinitive patterns
+//      "Activity-Ext"     – concrete activity extensions
 
 const MOCK_TURNS = [
   {
     turn_number: 1,
-    user_said: 'Bonjour',
+    user_said: 'Bonjour !',
     response: {
       spoken_response: "Bonjour ! Comment tu t'appelles ?",
-      translation_hint: 'Hello! What is your name?',
+      translation_hint: "Hello! What's your name?",
       vocabulary_breakdown: [
-        { word: 'comment', translation: 'how/what', part_of_speech: 'adverb' },
-        { word: 'tu', translation: 'you (informal)', part_of_speech: 'pronoun' },
-        { word: "t'appelles", translation: 'are called', part_of_speech: "verb (s'appeler)" },
+        { word: 'Bonjour !', translation: 'Hello!', part_of_speech: 'greeting phrase' },
+        { word: "Comment tu t'appelles ?", translation: "What's your name?", part_of_speech: 'question phrase (s\'appeler)' },
       ],
-      new_elements: ['comment', "tu t'appelles"],
-      reactivated_elements: ['bonjour'],
+      new_elements: ['Bonjour !', "Comment tu t'appelles ?"],
+      reactivated_elements: [],
       user_level_assessment: 'A1',
-      border_update: 'You can greet someone. Next: introduce yourself by name.',
+      border_update: 'You can open a conversation. Next border: introduce yourself by name.',
     },
   },
   {
     turn_number: 2,
-    user_said: "Je m'appelle Marie",
+    user_said: "Je m'appelle Marie.",
     response: {
-      spoken_response: 'Enchanté, Marie ! Tu habites où ?',
+      spoken_response: "Enchanté, Marie ! Tu habites où ?",
       translation_hint: 'Nice to meet you, Marie! Where do you live?',
       vocabulary_breakdown: [
-        { word: 'enchanté', translation: 'nice to meet you', part_of_speech: 'adjective' },
-        { word: 'habites', translation: 'live', part_of_speech: 'verb (habiter)' },
-        { word: 'où', translation: 'where', part_of_speech: 'adverb' },
+        { word: "Je m'appelle Marie.", translation: 'My name is Marie.', part_of_speech: 'identity sentence (s\'appeler)' },
+        { word: 'Enchanté !', translation: 'Nice to meet you!', part_of_speech: 'social phrase' },
+        { word: 'Tu habites où ?', translation: 'Where do you live?', part_of_speech: 'question phrase (habiter)' },
       ],
-      new_elements: ['enchanté', 'tu habites', 'où'],
-      reactivated_elements: ["tu t'appelles", 'bonjour'],
+      new_elements: ["Je m'appelle [prénom].", 'Enchanté !', 'Tu habites où ?'],
+      reactivated_elements: ['Bonjour !'],
       user_level_assessment: 'A1',
-      border_update: 'You can introduce yourself. Next: talk about where you live.',
+      border_update: 'You can introduce yourself. Next border: describe where you live.',
     },
   },
   {
     turn_number: 3,
-    user_said: "J'habite à Paris",
+    user_said: "J'habite à Paris.",
     response: {
       spoken_response: "Ah, Paris ! C'est une belle ville. Tu aimes Paris ?",
       translation_hint: "Ah, Paris! It's a beautiful city. Do you like Paris?",
       vocabulary_breakdown: [
-        { word: "c'est", translation: 'it is', part_of_speech: 'pronoun + verb' },
-        { word: 'belle', translation: 'beautiful', part_of_speech: 'adjective' },
-        { word: 'ville', translation: 'city', part_of_speech: 'noun' },
-        { word: 'aimes', translation: 'like/love', part_of_speech: 'verb (aimer)' },
+        { word: "J'habite à Paris.", translation: 'I live in Paris.', part_of_speech: 'location sentence (habiter)' },
+        { word: "C'est une belle ville.", translation: "It's a beautiful city.", part_of_speech: 'description sentence (être)' },
+        { word: 'Tu aimes Paris ?', translation: 'Do you like Paris?', part_of_speech: 'opinion question (aimer)' },
       ],
-      new_elements: ["c'est", 'belle', 'ville', 'tu aimes'],
-      reactivated_elements: ['tu habites', 'où'],
+      new_elements: ["J'habite à [lieu].", "C'est une belle ville.", 'Tu aimes [lieu] ?'],
+      reactivated_elements: ['Tu habites où ?'],
       user_level_assessment: 'A1+',
-      border_update: 'You can say where you live. Next: express preferences and opinions.',
+      border_update: 'You can say where you live. Next border: express opinions and preferences.',
     },
   },
   {
     turn_number: 4,
-    user_said: "Oui, j'aime beaucoup Paris",
+    user_said: "Oui, j'aime beaucoup Paris !",
     response: {
       spoken_response: "Moi aussi ! Qu'est-ce que tu aimes faire à Paris ?",
       translation_hint: 'Me too! What do you like to do in Paris?',
       vocabulary_breakdown: [
-        { word: 'moi aussi', translation: 'me too', part_of_speech: 'pronoun + adverb' },
-        { word: "qu'est-ce que", translation: 'what (question form)', part_of_speech: 'interrogative' },
-        { word: 'faire', translation: 'to do', part_of_speech: 'verb (infinitive)' },
+        { word: "J'aime beaucoup [lieu/chose].", translation: 'I really like [place/thing].', part_of_speech: 'opinion sentence (aimer)' },
+        { word: "Qu'est-ce que tu aimes faire ?", translation: 'What do you like to do?', part_of_speech: 'activity question (aimer + inf.)' },
+        { word: 'Moi aussi !', translation: 'Me too!', part_of_speech: 'agreement phrase' },
       ],
-      new_elements: ["qu'est-ce que", 'faire'],
-      reactivated_elements: ['tu aimes', "j'habite", 'bonjour'],
+      new_elements: ["J'aime beaucoup [lieu/chose].", "Qu'est-ce que tu aimes faire ?", 'Moi aussi !'],
+      reactivated_elements: ["J'habite à [lieu].", 'Tu aimes [lieu] ?'],
       user_level_assessment: 'A1+',
-      border_update: 'You can express what you like. Next: describe activities and hobbies.',
+      border_update: 'You can express likes. Next border: describe specific activities.',
     },
   },
   {
     turn_number: 5,
-    user_said: "J'aime visiter les musées et manger des croissants",
+    user_said: "J'aime visiter les musées et manger des croissants.",
     response: {
-      spoken_response: 'Excellent ! Tu parles déjà très bien. Les musées de Paris sont magnifiques !',
-      translation_hint: 'Excellent! You already speak very well. The museums of Paris are magnificent!',
+      spoken_response: "Excellent ! Tu parles déjà très bien. Les musées de Paris sont magnifiques !",
+      translation_hint: 'Excellent! You already speak very well. The museums in Paris are magnificent!',
       vocabulary_breakdown: [
-        { word: 'parles', translation: 'speak', part_of_speech: 'verb (parler)' },
-        { word: 'déjà', translation: 'already', part_of_speech: 'adverb' },
-        { word: 'très bien', translation: 'very well', part_of_speech: 'adverb' },
-        { word: 'magnifiques', translation: 'magnificent', part_of_speech: 'adjective' },
+        { word: "J'aime visiter les musées.", translation: 'I like visiting museums.', part_of_speech: 'activity sentence (aimer + inf.)' },
+        { word: "J'aime manger des croissants.", translation: 'I like eating croissants.', part_of_speech: 'activity sentence (aimer + inf.)' },
+        { word: 'Tu parles déjà très bien !', translation: 'You already speak very well!', part_of_speech: 'compliment sentence (parler)' },
       ],
-      new_elements: ['tu parles', 'déjà', 'magnifiques'],
-      reactivated_elements: ['tu aimes', 'faire', 'belle', 'ville'],
+      new_elements: ["J'aime visiter [lieu].", "J'aime manger [nourriture].", 'Tu parles très bien !'],
+      reactivated_elements: ["J'aime beaucoup [lieu/chose].", "Qu'est-ce que tu aimes faire ?", "C'est une belle ville."],
       user_level_assessment: 'A2',
-      border_update: "You can describe activities and preferences with detail. You've reached A2!",
+      border_update: "You can describe activities and chain preferences. You've crossed into A2!",
     },
   },
 ];
 
-// Graph data matching backend mock_data.py
+// ── Sentence-level graph nodes ───────────────────────────────────────────
+//  type: 'sentence' → soma (core pattern)
+//  type: 'extension' → dendrite (scenario extension of a soma)
+//  type: 'social'   → soma (fixed social phrase)
 const MOCK_GRAPH_NODES = [
-  { id: 'bonjour', label: 'bonjour', type: 'vocab', mastery: 1.0, level: 'A1', turn_introduced: 1 },
-  { id: 'comment', label: 'comment', type: 'vocab', mastery: 0.5, level: 'A1', turn_introduced: 1 },
-  { id: 'tu_tappelles', label: "tu t'appelles", type: 'sentence', mastery: 0.85, level: 'A1', turn_introduced: 1 },
-  { id: 'je_mappelle', label: "je m'appelle", type: 'sentence', mastery: 0.9, level: 'A1', turn_introduced: 2 },
-  { id: 'enchante', label: 'enchanté', type: 'vocab', mastery: 0.3, level: 'A1', turn_introduced: 2 },
-  { id: 'tu_habites', label: 'tu habites', type: 'sentence', mastery: 0.8, level: 'A1', turn_introduced: 2 },
-  { id: 'jhabite', label: "j'habite", type: 'sentence', mastery: 0.85, level: 'A1', turn_introduced: 3 },
-  { id: 'cest', label: "c'est", type: 'grammar', mastery: 0.3, level: 'A1+', turn_introduced: 3 },
-  { id: 'tu_aimes', label: 'tu aimes', type: 'sentence', mastery: 0.75, level: 'A1+', turn_introduced: 3 },
-  { id: 'faire', label: 'faire', type: 'vocab', mastery: 0.5, level: 'A1+', turn_introduced: 4 },
-  { id: 'visiter', label: 'visiter', type: 'vocab', mastery: 0.6, level: 'A2', turn_introduced: 5 },
-  { id: 'tu_parles', label: 'tu parles', type: 'sentence', mastery: 0.3, level: 'A2', turn_introduced: 5 },
+  // ── Turn 1: Greeting cluster ──────────────────────────────────────────
+  { id: 'greet_bonjour',     label: 'Bonjour !',                    type: 'social',    mastery: 1.0,  level: 'A1',  grammarDna: 'Greeting', turn_introduced: 1, category: 'social' },
+  { id: 'q_comment_appelles',label: "Comment tu t'appelles ?",      type: 'sentence',  mastery: 0.85, level: 'A1',  grammarDna: 'Identity-Q&A', turn_introduced: 1, category: 'social' },
+
+  // ── Turn 2: Identity cluster ───────────────────────────────────────────
+  { id: 'r_je_mappelle',     label: "Je m'appelle [prénom].",        type: 'sentence',  mastery: 0.9,  level: 'A1',  grammarDna: 'Identity-Q&A', turn_introduced: 2, category: 'social' },
+  { id: 'social_enchante',   label: 'Enchanté !',                   type: 'social',    mastery: 0.75, level: 'A1',  grammarDna: 'Greeting', turn_introduced: 2, category: 'social' },
+  { id: 'q_tu_habites',      label: 'Tu habites où ?',              type: 'sentence',  mastery: 0.8,  level: 'A1',  grammarDna: 'Location-Q&A', turn_introduced: 2, category: 'daily' },
+
+  // ── Turn 3: Location cluster ───────────────────────────────────────────
+  { id: 'r_jhabite_paris',   label: "J'habite à Paris.",             type: 'sentence',  mastery: 0.85, level: 'A1',  grammarDna: 'Location-Q&A', turn_introduced: 3, category: 'daily' },
+  { id: 'desc_belle_ville',  label: "C'est une belle ville.",        type: 'sentence',  mastery: 0.6,  level: 'A1+', grammarDna: 'Description', turn_introduced: 3, category: 'daily' },
+  { id: 'q_tu_aimes_lieu',   label: 'Tu aimes [lieu] ?',            type: 'sentence',  mastery: 0.7,  level: 'A1+', grammarDna: 'Opinion-Inf', turn_introduced: 3, category: 'daily' },
+
+  // ── Turn 4: Opinion + Activity question cluster ────────────────────────
+  { id: 'r_jaime_bcp',       label: "J'aime beaucoup [lieu/chose].", type: 'sentence',  mastery: 0.8,  level: 'A1+', grammarDna: 'Opinion-Inf', turn_introduced: 4, category: 'daily' },
+  { id: 'q_aimes_faire',     label: "Qu'est-ce que tu aimes faire ?",type: 'sentence',  mastery: 0.65, level: 'A1+', grammarDna: 'Opinion-Inf', turn_introduced: 4, category: 'daily' },
+  { id: 'social_moi_aussi',  label: 'Moi aussi !',                  type: 'social',    mastery: 0.55, level: 'A1+', grammarDna: 'Greeting',    turn_introduced: 4, category: 'social' },
+
+  // ── Turn 5: Activity extensions (dendrites of j'aime faire) ───────────
+  { id: 'act_visiter_musees',label: "J'aime visiter les musées.",    type: 'extension', mastery: 0.7,  level: 'A2',  grammarDna: 'Activity-Ext', turn_introduced: 5, category: 'travel' },
+  { id: 'act_manger_crois',  label: "J'aime manger des croissants.", type: 'extension', mastery: 0.65, level: 'A2',  grammarDna: 'Activity-Ext', turn_introduced: 5, category: 'daily' },
+  { id: 'comp_tu_parles',    label: 'Tu parles très bien !',         type: 'sentence',  mastery: 0.4,  level: 'A2',  grammarDna: 'Description',  turn_introduced: 5, category: 'social' },
 ];
 
+// ── Semantic link graph ──────────────────────────────────────────────────
+//  prerequisite       = "you must know A before B makes sense"
+//  conjugation_pair   = question ↔ answer mirror
+//  semantic_extension = same topic, new scenario
+//  reactivation       = old pattern recycled in new context
 const MOCK_GRAPH_LINKS = [
-  { source: 'bonjour', target: 'comment', relationship: 'semantic', turn_introduced: 1 },
-  { source: 'comment', target: 'tu_tappelles', relationship: 'prerequisite', turn_introduced: 1 },
-  { source: 'tu_tappelles', target: 'je_mappelle', relationship: 'conjugation', turn_introduced: 2 },
-  { source: 'je_mappelle', target: 'enchante', relationship: 'semantic', turn_introduced: 2 },
-  { source: 'bonjour', target: 'tu_habites', relationship: 'reactivation', turn_introduced: 2 },
-  { source: 'tu_habites', target: 'jhabite', relationship: 'conjugation', turn_introduced: 3 },
-  { source: 'jhabite', target: 'cest', relationship: 'semantic', turn_introduced: 3 },
-  { source: 'cest', target: 'tu_aimes', relationship: 'prerequisite', turn_introduced: 3 },
-  { source: 'tu_aimes', target: 'faire', relationship: 'prerequisite', turn_introduced: 4 },
-  { source: 'faire', target: 'visiter', relationship: 'semantic', turn_introduced: 5 },
-  { source: 'tu_aimes', target: 'tu_parles', relationship: 'reactivation', turn_introduced: 5 },
+  // Greeting → Identity question (you greet, then ask name)
+  { source: 'greet_bonjour',     target: 'q_comment_appelles', relationship: 'prerequisite',       turn_introduced: 1 },
+  // Question ↔ Answer mirror pair
+  { source: 'q_comment_appelles',target: 'r_je_mappelle',      relationship: 'conjugation_pair',   turn_introduced: 2 },
+  // Answering name → social phrase "Enchanté"
+  { source: 'r_je_mappelle',     target: 'social_enchante',    relationship: 'semantic_extension', turn_introduced: 2 },
+  // After name → ask where they live
+  { source: 'social_enchante',   target: 'q_tu_habites',       relationship: 'prerequisite',       turn_introduced: 2 },
+  // Question ↔ Answer mirror pair
+  { source: 'q_tu_habites',      target: 'r_jhabite_paris',    relationship: 'conjugation_pair',   turn_introduced: 3 },
+  // Location → description of that place
+  { source: 'r_jhabite_paris',   target: 'desc_belle_ville',   relationship: 'semantic_extension', turn_introduced: 3 },
+  // Description → opinion question about the place
+  { source: 'desc_belle_ville',  target: 'q_tu_aimes_lieu',    relationship: 'prerequisite',       turn_introduced: 3 },
+  // Opinion question ↔ answer mirror
+  { source: 'q_tu_aimes_lieu',   target: 'r_jaime_bcp',        relationship: 'conjugation_pair',   turn_introduced: 4 },
+  // "I like X" → "what do you like TO DO?" (adds infinitive verb)
+  { source: 'r_jaime_bcp',       target: 'q_aimes_faire',      relationship: 'prerequisite',       turn_introduced: 4 },
+  // Agreement phrase reuses earlier greeting cluster
+  { source: 'greet_bonjour',     target: 'social_moi_aussi',   relationship: 'reactivation',       turn_introduced: 4 },
+  // "What do you like to do?" branches into concrete activities
+  { source: 'q_aimes_faire',     target: 'act_visiter_musees', relationship: 'semantic_extension', turn_introduced: 5 },
+  { source: 'q_aimes_faire',     target: 'act_manger_crois',   relationship: 'semantic_extension', turn_introduced: 5 },
+  // Activities reactivate the base "j'aime beaucoup" structure
+  { source: 'act_visiter_musees',target: 'r_jaime_bcp',        relationship: 'reactivation',       turn_introduced: 5 },
+  // Compliment reactivates the description cluster
+  { source: 'desc_belle_ville',  target: 'comp_tu_parles',     relationship: 'reactivation',       turn_introduced: 5 },
 ];
 
 let mockTurnIndex = 0;
@@ -137,22 +185,33 @@ let mockTurnIndex = 0;
 // ── Type mapping constants ───────────────────────────────────────────────
 
 const NODE_TYPE_MAP: Record<string, 'soma' | 'dendrite'> = {
-  sentence: 'soma',
-  grammar: 'soma',
-  vocab: 'dendrite',
+  sentence:  'soma',      // core patterns → large glowing sphere
+  social:    'soma',      // fixed social phrases → large sphere
+  extension: 'dendrite',  // scenario extensions → small satellite sphere
 };
 
 const CATEGORY_MAP: Record<string, Category> = {
-  A1: 'daily',
+  social:   'social',
+  daily:    'daily',
+  travel:   'travel',
+  work:     'work',
+  academic: 'academic',
+  coding:   'coding',
+  other:    'other',
+  // CEFR fallbacks (legacy)
+  A1:  'daily',
   'A1+': 'social',
-  A2: 'academic',
+  A2:  'academic',
 };
 
 const SYNAPSE_TYPE_MAP: Record<string, 'logical' | 'derivation'> = {
-  prerequisite: 'logical',
-  conjugation: 'logical',
-  semantic: 'derivation',
-  reactivation: 'derivation',
+  prerequisite:       'logical',    // must know A before B
+  conjugation_pair:   'logical',    // question ↔ answer structural mirror
+  semantic_extension: 'derivation', // same topic, new scenario branch
+  reactivation:       'derivation', // old pattern recycled in new context
+  // legacy keys kept for back-compat
+  conjugation:        'logical',
+  semantic:           'derivation',
 };
 
 // ── Backend detection ────────────────────────────────────────────────────
@@ -160,13 +219,12 @@ const SYNAPSE_TYPE_MAP: Record<string, 'logical' | 'derivation'> = {
 let _useBackend: boolean | null = null;
 
 export async function checkBackend(): Promise<boolean> {
-  if (_useBackend !== null) return _useBackend;
-  _useBackend = await backend.isBackendAvailable();
-  if (_useBackend) {
-    const connected = await backend.connect();
-    _useBackend = connected;
-  }
-  return _useBackend;
+  // Always use mock/demo mode — the FastAPI backend requires live API keys
+  // (Speechmatics, OpenAI, Backboard) that are not available in local dev.
+  // The rich mock data already provides the full A1→A2 demo experience.
+  _useBackend = false;
+  mockTurnIndex = 0;
+  return false;
 }
 
 export function isUsingBackend(): boolean {
@@ -233,7 +291,12 @@ export async function analyzeInput(
     }
   }
 
-  // ── Mock mode ──────────────────────────────────────────────────────
+  // ── Mock mode ─────────────────────────────────────────────────────
+  // In demo mode, audio blobs and empty strings should NOT consume a turn.
+  // Only explicit text submissions or the '[mock-advance]' sentinel advance the demo.
+  if (inputType === 'audio' || !input.trim()) {
+    return processMockTurn(currentState);
+  }
   return processMockTurn(currentState);
 }
 
@@ -265,8 +328,9 @@ function processMockTurn(currentState: NebulaState): NebulaState {
     potential: n.mastery,
     strength: n.mastery,
     usageCount: Math.ceil(n.mastery * 5),
-    category: CATEGORY_MAP[n.level] || ('daily' as Category),
-    grammarDna: n.type === 'grammar' ? 'Grammar' : n.type === 'sentence' ? 'SVO' : 'Vocab',
+    // Use explicit category from node data; fall back to level-based mapping
+    category: (CATEGORY_MAP[n.category || ''] || CATEGORY_MAP[n.level] || 'daily') as Category,
+    grammarDna: n.grammarDna || (n.type === 'extension' ? 'Activity-Ext' : n.type === 'social' ? 'Greeting' : 'Identity-Q&A'),
     isShadow: n.mastery < 0.3,
     lastReviewed: Date.now(),
   }));
