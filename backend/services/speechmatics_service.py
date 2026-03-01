@@ -44,6 +44,10 @@ class SpeechmaticsService:
         if not self.mock_mode:
             self._init_real_client()
 
+    def set_language(self, language: str):
+        """Switch STT language — FR only for demo."""
+        pass
+
     def _init_real_client(self):
         """Initialize Speechmatics connection settings for real-time STT."""
         from speechmatics.models import ConnectionSettings, TranscriptionConfig
