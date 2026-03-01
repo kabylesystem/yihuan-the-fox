@@ -14,3 +14,4 @@ pytest-asyncio
 aiohttp
 gtts
 supabase
+edge-tts
