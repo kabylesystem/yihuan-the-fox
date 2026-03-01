@@ -583,24 +583,24 @@ async def _process_turn(
     }
     await websocket.send_json(response_payload)
 
-    # ── Step 5: TTS + Backboard in background ──────────────────────
-    async def _background_tasks():
-        # TTS — use early-fired result if available, otherwise generate now
+    # ── Step 5: TTS — send BEFORE returning (don't risk WebSocket closing) ──
+    try:
+        if early_tts_task:
+            tts_result = await early_tts_task
+        else:
+            tts_result = await _tts_service.synthesize(tutor_response.spoken_response)
+        total_to_audio = int((time.perf_counter() - t0) * 1000)
+        logger.info(">>> AUDIO READY: %dms total (mode=%s)", total_to_audio, tts_result.get("mode"))
+        await websocket.send_json({"type": "tts", "tts": tts_result})
+    except Exception as exc:
+        logger.error("TTS send failed, sending browser fallback: %s", exc)
         try:
-            if early_tts_task:
-                tts_result = await early_tts_task
-            else:
-                logger.warning("No early TTS task — generating TTS now (slower path)")
-                tts_result = await _tts_service.synthesize(
-                    tutor_response.spoken_response
-                )
-            total_to_audio = int((time.perf_counter() - t0) * 1000)
-            logger.info(">>> AUDIO SENT: %dms total (from mic-stop to audio-sent)", total_to_audio)
-            await websocket.send_json({"type": "tts", "tts": tts_result})
-        except Exception as exc:
-            logger.error("TTS failed (non-fatal): %s", exc)
+            await websocket.send_json({"type": "tts", "tts": {"mode": "browser", "text": tutor_response.spoken_response}})
+        except Exception:
+            pass
 
-        # Backboard — persist memory
+    # ── Step 6: Backboard update in background (non-critical) ─────
+    async def _background_backboard():
         try:
             await _backboard_service.update_mastery(tutor_response.mastery_scores)
             await _backboard_service.update_profile(
@@ -611,7 +611,7 @@ async def _process_turn(
         except Exception as exc:
             logger.error("Backboard update failed (non-fatal): %s", exc)
 
-    asyncio.create_task(_background_tasks())
+    asyncio.create_task(_background_backboard())
 
     # Return None — response already sent via websocket above
     return None
