@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 
 import * as React from 'react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -28,6 +28,14 @@ export interface MissionWithTasks {
   tasks: { id: string; label: string }[];
   keywords: string[];
 }
+
+export type LearnerLevel = 'starter' | 'intermediate' | 'advanced';
+
+export const LEARNER_LEVEL_LABEL: Record<LearnerLevel, string> = {
+  starter: 'Beginner (A0-A1)',
+  intermediate: 'Developing (A2-B1)',
+  advanced: 'Independent (B2+)',
+};
 
 // ── MISSION_POOL (15 missions) ─────────────────────────────────────────────
 
@@ -234,12 +242,30 @@ function mulberry32(seed: number): () => number {
 export function getDailyMissions(
   dailyMinutes: number,
   fadingTargets: string[],
+  learnerLevel: LearnerLevel = 'intermediate',
 ): MissionWithTasks[] {
   const count = Math.max(1, Math.floor(dailyMinutes / 5));
 
+  const starterMissionIds = new Set([
+    'id_name',
+    'id_origin',
+    'food_like',
+    'food_order',
+    'daily_morning',
+    'daily_today',
+    'people_family',
+    'people_friend',
+    'places_city',
+    'deep_weather',
+  ]);
+
+  const sourcePool = learnerLevel === 'starter'
+    ? MISSION_POOL.filter((def) => starterMissionIds.has(def.id))
+    : MISSION_POOL;
+
   // Deterministic shuffle by today's date
   const rand = mulberry32(dateSeed());
-  const pool = [...MISSION_POOL];
+  const pool = [...sourcePool];
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -248,10 +274,23 @@ export function getDailyMissions(
   const selected = pool.slice(0, Math.min(count, pool.length));
 
   return selected.map((def, idx) => {
+    const detailLabel =
+      learnerLevel === 'starter'
+        ? 'Add one short detail.'
+        : learnerLevel === 'advanced'
+          ? 'Add two details and connect them.'
+          : 'Add a detail or reason.';
+
     const fadingWord = fadingTargets[idx % Math.max(1, fadingTargets.length)] || '';
     const reuseLabel = fadingWord
-      ? `Reuse this fading word: "${fadingWord}".`
-      : 'Reuse one word you learned before.';
+      ? learnerLevel === 'advanced'
+        ? `Reuse this fading word and add an example: "${fadingWord}".`
+        : learnerLevel === 'starter'
+          ? `Reuse this fading word once: "${fadingWord}".`
+          : `Reuse this fading word: "${fadingWord}".`
+      : learnerLevel === 'advanced'
+        ? 'Reuse one old word and expand with an example.'
+        : 'Reuse one word you learned before.';
 
     return {
       id: def.id,
@@ -262,7 +301,7 @@ export function getDailyMissions(
       keywords: def.keywords,
       tasks: [
         { id: `${def.id}_main`, label: def.mainTask },
-        { id: `${def.id}_detail`, label: 'Add a detail or reason.' },
+        { id: `${def.id}_detail`, label: detailLabel },
         { id: `${def.id}_reuse`, label: reuseLabel },
       ],
     };
@@ -278,6 +317,7 @@ export function evaluateMissionTask(
   userText: string,
   qualityScore: number,
   fadingTargets: string[],
+  learnerLevel: LearnerLevel = 'intermediate',
 ): boolean {
   const lower = (userText || '').toLowerCase();
   const acceptedLower = acceptedUnits.map((u) => u.toLowerCase());
@@ -300,7 +340,9 @@ export function evaluateMissionTask(
 
   // Detail task: quality OR enough accepted units
   if (taskId.endsWith('_detail')) {
-    return acceptedUnits.length >= 2 || qualityScore >= 0.65;
+    const unitThreshold = learnerLevel === 'starter' ? 1 : learnerLevel === 'advanced' ? 3 : 2;
+    const qualityThreshold = learnerLevel === 'starter' ? 0.55 : learnerLevel === 'advanced' ? 0.75 : 0.65;
+    return acceptedUnits.length >= unitThreshold || qualityScore >= qualityThreshold;
   }
 
   // Reuse task: check if any fading target appears
@@ -309,7 +351,12 @@ export function evaluateMissionTask(
       // No fading targets yet; pass if any accepted unit
       return acceptedUnits.length >= 1;
     }
-    return fadingTargets.some((t) => containsTarget(t));
+    const reused = fadingTargets.some((t) => containsTarget(t));
+    if (!reused) return false;
+    if (learnerLevel === 'advanced') {
+      return acceptedUnits.length >= 2 || qualityScore >= 0.7;
+    }
+    return true;
   }
 
   return false;
@@ -322,20 +369,77 @@ export interface MascotOverlayProps {
   data?: any;
   onDismiss: () => void;
   onboardingStep?: number;
+  selectedMinutes?: number;
+  selectedLevel?: LearnerLevel;
   onSelectMinutes?: (minutes: number) => void;
+  onSelectLevel?: (level: LearnerLevel) => void;
 }
 
 // We build the component with React.createElement to avoid needing JSX in a .ts file.
 const h = React.createElement;
 
 function EchoLogo(props: { size?: 'sm' | 'lg' }) {
-  const sz = props.size === 'lg' ? 'w-20 h-20' : 'w-10 h-10';
+  const isLarge = props.size !== 'sm';
+  const sz = isLarge ? 'w-20 h-20' : 'w-10 h-10';
+  const armLength = isLarge ? 26 : 14;
+  const armOffset = isLarge ? 15 : 8;
+  const legLength = isLarge ? 18 : 10;
+  const legOffset = isLarge ? 10 : 5;
+  const lineThickness = isLarge ? 3 : 2;
+  const eyeOpen = isLarge ? 8 : 4;
+  const eyeClosed = isLarge ? 4 : 2;
+  const eyeHeightOpen = isLarge ? 8 : 4;
+  const eyeHeightClosed = isLarge ? 2 : 1;
+  const mouthWidth = isLarge ? 18 : 10;
+  const mouthHeight = isLarge ? 8 : 4;
+  const lineColor = 'rgba(156, 211, 255, 0.95)';
+  const glowColor = '0 0 10px rgba(82, 191, 255, 0.55)';
+  const [poseIndex, setPoseIndex] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setPoseIndex((prev) => (prev + 1) % 3);
+    }, 2800);
+    return () => clearInterval(timer);
+  }, []);
+
+  const poses = [
+    {
+      leftArm: -18,
+      rightArm: 18,
+      leftLeg: 10,
+      rightLeg: -10,
+      leftEyeClosed: false,
+      rightEyeClosed: false,
+      mouth: 'smile' as const,
+    },
+    {
+      leftArm: -58,
+      rightArm: 30,
+      leftLeg: 4,
+      rightLeg: -16,
+      leftEyeClosed: true,
+      rightEyeClosed: false,
+      mouth: 'smile' as const,
+    },
+    {
+      leftArm: -80,
+      rightArm: 80,
+      leftLeg: 16,
+      rightLeg: -16,
+      leftEyeClosed: false,
+      rightEyeClosed: false,
+      mouth: 'surprised' as const,
+    },
+  ];
+  const pose = poses[poseIndex];
+
   return h(
     motion.div,
     {
-      animate: { scale: [1, 1.06, 1] },
+      animate: { scale: [1, 1.06, 1], y: [0, -2, 0] },
       transition: { duration: 4.8, repeat: Infinity, ease: 'easeInOut' },
-      className: `relative ${sz} rounded-full mx-auto`,
+      className: `relative ${sz} rounded-full mx-auto flex items-center justify-center`,
       style: {
         background:
           'radial-gradient(circle, #000 28%, #001a66 42%, #0040dd 56%, #1a6aff 70%, #2060e0 85%, #1848b0 100%)',
@@ -343,7 +447,111 @@ function EchoLogo(props: { size?: 'sm' | 'lg' }) {
           '0 0 18px 4px rgba(30,80,240,0.45), 0 0 40px 8px rgba(20,60,200,0.2)',
       },
     },
-    null,
+    h(
+      React.Fragment,
+      null,
+      h(motion.div, {
+        className: 'absolute rounded-full',
+        style: {
+          left: `-${armOffset}px`,
+          top: '52%',
+          width: `${armLength}px`,
+          height: `${lineThickness}px`,
+          background: lineColor,
+          boxShadow: glowColor,
+          transformOrigin: '100% 50%',
+        },
+        animate: { rotate: pose.leftArm },
+        transition: { duration: 0.45, ease: 'easeOut' },
+      }),
+      h(motion.div, {
+        className: 'absolute rounded-full',
+        style: {
+          right: `-${armOffset}px`,
+          top: '52%',
+          width: `${armLength}px`,
+          height: `${lineThickness}px`,
+          background: lineColor,
+          boxShadow: glowColor,
+          transformOrigin: '0% 50%',
+        },
+        animate: { rotate: pose.rightArm },
+        transition: { duration: 0.45, ease: 'easeOut' },
+      }),
+      h(motion.div, {
+        className: 'absolute rounded-full',
+        style: {
+          left: '36%',
+          bottom: `-${legOffset}px`,
+          width: `${legLength}px`,
+          height: `${lineThickness}px`,
+          background: lineColor,
+          boxShadow: glowColor,
+          transformOrigin: '50% 0%',
+        },
+        animate: { rotate: pose.leftLeg },
+        transition: { duration: 0.45, ease: 'easeOut' },
+      }),
+      h(motion.div, {
+        className: 'absolute rounded-full',
+        style: {
+          right: '36%',
+          bottom: `-${legOffset}px`,
+          width: `${legLength}px`,
+          height: `${lineThickness}px`,
+          background: lineColor,
+          boxShadow: glowColor,
+          transformOrigin: '50% 0%',
+        },
+        animate: { rotate: pose.rightLeg },
+        transition: { duration: 0.45, ease: 'easeOut' },
+      }),
+      h(
+        'div',
+        {
+          className: 'absolute inset-0 pointer-events-none flex flex-col items-center justify-center',
+          style: { gap: isLarge ? '7px' : '4px' },
+        },
+        h(
+          'div',
+          { className: 'flex items-center justify-center', style: { gap: isLarge ? '10px' : '5px' } },
+          h(motion.div, {
+            className: 'rounded-full',
+            style: { background: lineColor, boxShadow: glowColor },
+            animate: {
+              width: pose.leftEyeClosed ? eyeClosed : eyeOpen,
+              height: pose.leftEyeClosed ? eyeHeightClosed : eyeHeightOpen,
+            },
+            transition: { duration: 0.35, ease: 'easeOut' },
+          }),
+          h(motion.div, {
+            className: 'rounded-full',
+            style: { background: lineColor, boxShadow: glowColor },
+            animate: {
+              width: pose.rightEyeClosed ? eyeClosed : eyeOpen,
+              height: pose.rightEyeClosed ? eyeHeightClosed : eyeHeightOpen,
+            },
+            transition: { duration: 0.35, ease: 'easeOut' },
+          }),
+        ),
+        pose.mouth === 'surprised'
+          ? h(motion.div, {
+            className: 'rounded-full border',
+            style: { borderColor: lineColor, boxShadow: glowColor },
+            animate: { width: mouthHeight, height: mouthHeight },
+            transition: { duration: 0.35, ease: 'easeOut' },
+          })
+          : h(motion.div, {
+            className: 'border-b rounded-b-full',
+            style: {
+              borderBottomColor: lineColor,
+              borderBottomWidth: isLarge ? 2 : 1.5,
+            },
+            animate: { width: mouthWidth, height: mouthHeight },
+            transition: { duration: 0.35, ease: 'easeOut' },
+          }),
+      ),
+    ),
   );
 }
 
@@ -374,6 +582,7 @@ function PillButton(props: {
 const STORAGE = {
   onboarded: 'echo_onboarding',
   dailyMinutes: 'echo_daily_minutes',
+  learnerLevel: 'echo_learner_level',
   sessionDate: 'echo_session_date',
   missionsCompleted: 'echo_missions_completed',
   missionDone: 'echo_mission_done',
@@ -384,6 +593,11 @@ export function loadDailyState() {
   const today = new Date().toISOString().slice(0, 10);
   const onboarded = localStorage.getItem(STORAGE.onboarded) === 'true';
   const dailyMinutes = parseInt(localStorage.getItem(STORAGE.dailyMinutes) || '15', 10);
+  const storedLevel = localStorage.getItem(STORAGE.learnerLevel);
+  const learnerLevel: LearnerLevel =
+    storedLevel === 'starter' || storedLevel === 'intermediate' || storedLevel === 'advanced'
+      ? storedLevel
+      : 'intermediate';
   const savedDate = localStorage.getItem(STORAGE.sessionDate) || '';
   const isNewDay = savedDate !== today;
 
@@ -392,12 +606,13 @@ export function loadDailyState() {
     localStorage.setItem(STORAGE.missionsCompleted, '0');
     localStorage.setItem(STORAGE.missionDone, '{}');
     localStorage.setItem(STORAGE.missionIndex, '0');
-    return { onboarded, dailyMinutes, missionsCompletedToday: 0, missionDone: {} as Record<string, boolean>, missionIndex: 0, isNewDay: true };
+    return { onboarded, dailyMinutes, learnerLevel, missionsCompletedToday: 0, missionDone: {} as Record<string, boolean>, missionIndex: 0, isNewDay: true };
   }
 
   return {
     onboarded,
     dailyMinutes,
+    learnerLevel,
     missionsCompletedToday: parseInt(localStorage.getItem(STORAGE.missionsCompleted) || '0', 10),
     missionDone: JSON.parse(localStorage.getItem(STORAGE.missionDone) || '{}') as Record<string, boolean>,
     missionIndex: parseInt(localStorage.getItem(STORAGE.missionIndex) || '0', 10),
@@ -405,9 +620,10 @@ export function loadDailyState() {
   };
 }
 
-export function saveOnboarding(dailyMinutes: number) {
+export function saveOnboarding(dailyMinutes: number, learnerLevel: LearnerLevel) {
   localStorage.setItem(STORAGE.onboarded, 'true');
   localStorage.setItem(STORAGE.dailyMinutes, String(dailyMinutes));
+  localStorage.setItem(STORAGE.learnerLevel, learnerLevel);
   localStorage.setItem(STORAGE.sessionDate, new Date().toISOString().slice(0, 10));
   localStorage.setItem(STORAGE.missionsCompleted, '0');
 }
@@ -421,7 +637,7 @@ export function saveMissionProgress(missionIndex: number, missionDone: Record<st
 // ── MascotOverlay Component ───────────────────────────────────────────────
 
 export function MascotOverlay(props: MascotOverlayProps) {
-  const { type, data, onDismiss, onboardingStep, onSelectMinutes } = props;
+  const { type, data, onDismiss, onboardingStep, selectedMinutes, selectedLevel, onSelectMinutes, onSelectLevel } = props;
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Stable ref for onDismiss so the auto-dismiss timer doesn't reset on every parent re-render
   const onDismissRef = useRef(onDismiss);
@@ -489,7 +705,47 @@ export function MascotOverlay(props: MascotOverlayProps) {
         ),
       );
     } else if (onboardingStep === 3) {
-      const mins = data?.minutes ?? 10;
+      const levels: Array<{ value: LearnerLevel; title: string; hint: string }> = [
+        { value: 'starter', title: 'Beginner (A0-A1)', hint: 'Simple words and short sentences.' },
+        { value: 'intermediate', title: 'Developing (A2-B1)', hint: 'Everyday topics with clear details.' },
+        { value: 'advanced', title: 'Independent (B2+)', hint: 'Longer answers, examples, and nuance.' },
+      ];
+
+      content = h(
+        'div',
+        { className: 'flex flex-col items-center gap-6' },
+        h(EchoLogo, { size: 'lg' }),
+        h(
+          'h1',
+          { className: 'text-2xl font-bold text-white text-center mt-4' },
+          'What is your current level?',
+        ),
+        h(
+          'p',
+          { className: 'text-base text-white/50 text-center max-w-md' },
+          'We will tune daily mission difficulty to this level.',
+        ),
+        h(
+          'div',
+          { className: 'w-full flex flex-col gap-3 mt-1' },
+          ...levels.map((level) =>
+            h(
+              'button',
+              {
+                key: level.value,
+                onClick: () => onSelectLevel?.(level.value),
+                className:
+                  'w-full text-left rounded-2xl border border-white/15 bg-white/5 hover:bg-white/10 px-4 py-3 transition-all',
+              },
+              h('p', { className: 'text-white font-semibold text-sm' }, level.title),
+              h('p', { className: 'text-white/55 text-xs mt-1' }, level.hint),
+            ),
+          ),
+        ),
+      );
+    } else if (onboardingStep === 4) {
+      const mins = selectedMinutes ?? data?.minutes ?? 10;
+      const level: LearnerLevel = selectedLevel ?? data?.level ?? 'intermediate';
       const n = Math.max(1, Math.floor(mins / 5));
       content = h(
         'div',
@@ -502,10 +758,10 @@ export function MascotOverlay(props: MascotOverlayProps) {
         ),
         h(
           'p',
-          { className: 'text-base text-white/50 text-center' },
-          "Let's go!",
+          { className: 'text-base text-white/50 text-center max-w-md' },
+          `Difficulty: ${LEARNER_LEVEL_LABEL[level]}.`,
         ),
-        h(PillButton, { label: 'Start', onClick: onDismiss, accent: true }),
+        h(PillButton, { label: 'Got it!', onClick: onDismiss, accent: true }),
       );
     }
   } else if (type === 'mission_intro') {
@@ -514,19 +770,19 @@ export function MascotOverlay(props: MascotOverlayProps) {
       { className: 'flex flex-col items-center gap-5' },
       h(EchoLogo, { size: 'lg' }),
       h(
+        'p',
+        { className: 'text-2xl text-blue-200/90 text-center font-semibold tracking-wide mt-2' },
+        'Your first mission:',
+      ),
+      h(
         'h1',
-        { className: 'text-3xl font-bold text-white text-center mt-4' },
+        { className: 'text-3xl font-bold text-white text-center mt-1' },
         data?.title ?? 'New Mission',
       ),
       h(
         'p',
-        { className: 'text-base text-white/50 italic text-center max-w-md' },
-        data?.humor ?? '',
-      ),
-      h(
-        'p',
-        { className: 'text-lg text-white/70 text-center max-w-md mt-1' },
-        data?.objective ?? '',
+        { className: 'text-base text-blue-300 text-center max-w-md font-medium' },
+        'Speak boldly, one sentence at a time, and watch your nebula light up ✨',
       ),
       h(PillButton, { label: "Let's go", onClick: onDismiss, accent: true }),
     );

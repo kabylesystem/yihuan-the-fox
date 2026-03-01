@@ -8,7 +8,7 @@ import { onConnectionStatusChange, onStatusStep, onTTS, ConnectionStatus, hardRe
 import { Send, Zap, Info, Loader2, Search, Filter, Mic, Clock, X, MessageSquare, User, Bot, ChevronDown, ChevronUp, RefreshCw, Wifi, WifiOff, CheckCircle2, Circle, Sparkles, LocateFixed, Trash2, Volume2, FlaskConical, BarChart2, Rocket } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getDailyMissions, evaluateMissionTask as evalTask, MascotOverlay, loadDailyState, saveOnboarding, saveMissionProgress } from './missions';
-import type { MissionWithTasks, MascotOverlayProps } from './missions';
+import type { LearnerLevel, MissionWithTasks, MascotOverlayProps } from './missions';
 import { useFlightModeMachine } from './components/navigation/useFlightModeMachine';
 import { FlightModeChoice } from './components/navigation/FlightModeChoice';
 import { StarcorePanel } from './components/navigation/StarcorePanel';
@@ -228,20 +228,137 @@ function AnimatedText({ text, className, delay = 0 }: { text: string; className?
 }
 
 function BlueRingLogo() {
+  const [poseIndex, setPoseIndex] = useState(0);
+  const lineColor = 'rgba(156, 211, 255, 0.95)';
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setPoseIndex((prev) => (prev + 1) % 3);
+    }, 2800);
+    return () => clearInterval(timer);
+  }, []);
+
+  const poses = [
+    { leftArm: -18, rightArm: 18, leftLeg: 10, rightLeg: -10, leftEyeClosed: false, rightEyeClosed: false, mouth: 'smile' as const },
+    { leftArm: -58, rightArm: 30, leftLeg: 4, rightLeg: -16, leftEyeClosed: true, rightEyeClosed: false, mouth: 'smile' as const },
+    { leftArm: -80, rightArm: 80, leftLeg: 16, rightLeg: -16, leftEyeClosed: false, rightEyeClosed: false, mouth: 'surprised' as const },
+  ];
+  const pose = poses[poseIndex];
+
   return (
     <motion.div
-      animate={{ scale: [1, 1.05, 1] }}
+      animate={{ scale: [1, 1.05, 1], y: [0, -1.5, 0] }}
       transition={{ duration: 4.8, repeat: Infinity, ease: 'easeInOut' }}
-      className="relative w-10 h-10 rounded-full"
+      className="relative w-10 h-10 rounded-full flex items-center justify-center"
       style={{
         background: 'radial-gradient(circle, #000 28%, #001a66 42%, #0040dd 56%, #1a6aff 70%, #2060e0 85%, #1848b0 100%)',
         boxShadow: '0 0 18px 4px rgba(30,80,240,0.45), 0 0 40px 8px rgba(20,60,200,0.2)',
       }}
-    />
+    >
+      <motion.div
+        className="absolute rounded-full"
+        style={{
+          left: '-8px',
+          top: '52%',
+          width: '14px',
+          height: '2px',
+          background: lineColor,
+          boxShadow: '0 0 8px rgba(82, 191, 255, 0.55)',
+          transformOrigin: '100% 50%',
+        }}
+        animate={{ rotate: pose.leftArm }}
+        transition={{ duration: 0.45, ease: 'easeOut' }}
+      />
+      <motion.div
+        className="absolute rounded-full"
+        style={{
+          right: '-8px',
+          top: '52%',
+          width: '14px',
+          height: '2px',
+          background: lineColor,
+          boxShadow: '0 0 8px rgba(82, 191, 255, 0.55)',
+          transformOrigin: '0% 50%',
+        }}
+        animate={{ rotate: pose.rightArm }}
+        transition={{ duration: 0.45, ease: 'easeOut' }}
+      />
+      <motion.div
+        className="absolute rounded-full"
+        style={{
+          left: '36%',
+          bottom: '-5px',
+          width: '10px',
+          height: '2px',
+          background: lineColor,
+          boxShadow: '0 0 8px rgba(82, 191, 255, 0.55)',
+          transformOrigin: '50% 0%',
+        }}
+        animate={{ rotate: pose.leftLeg }}
+        transition={{ duration: 0.45, ease: 'easeOut' }}
+      />
+      <motion.div
+        className="absolute rounded-full"
+        style={{
+          right: '36%',
+          bottom: '-5px',
+          width: '10px',
+          height: '2px',
+          background: lineColor,
+          boxShadow: '0 0 8px rgba(82, 191, 255, 0.55)',
+          transformOrigin: '50% 0%',
+        }}
+        animate={{ rotate: pose.rightLeg }}
+        transition={{ duration: 0.45, ease: 'easeOut' }}
+      />
+
+      <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center gap-1">
+        <div className="flex items-center justify-center gap-[5px]">
+          <motion.div
+            className="rounded-full"
+            style={{ background: lineColor, boxShadow: '0 0 8px rgba(82, 191, 255, 0.55)' }}
+            animate={{
+              width: pose.leftEyeClosed ? 2 : 4,
+              height: pose.leftEyeClosed ? 1 : 4,
+            }}
+            transition={{ duration: 0.35, ease: 'easeOut' }}
+          />
+          <motion.div
+            className="rounded-full"
+            style={{ background: lineColor, boxShadow: '0 0 8px rgba(82, 191, 255, 0.55)' }}
+            animate={{
+              width: pose.rightEyeClosed ? 2 : 4,
+              height: pose.rightEyeClosed ? 1 : 4,
+            }}
+            transition={{ duration: 0.35, ease: 'easeOut' }}
+          />
+        </div>
+        {pose.mouth === 'surprised' ? (
+          <motion.div
+            className="rounded-full border"
+            style={{ borderColor: lineColor, boxShadow: '0 0 8px rgba(82, 191, 255, 0.55)' }}
+            animate={{ width: 4, height: 4 }}
+            transition={{ duration: 0.35, ease: 'easeOut' }}
+          />
+        ) : (
+          <motion.div
+            className="border-b rounded-b-full"
+            style={{ borderBottomColor: lineColor, borderBottomWidth: 1.5 }}
+            animate={{ width: 10, height: 4 }}
+            transition={{ duration: 0.35, ease: 'easeOut' }}
+          />
+        )}
+      </div>
+    </motion.div>
   );
 }
 
 export default function App() {
+  const forceOnboarding = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('onboarding') === '1';
+  }, []);
+
   const [state, setState] = useState<NebulaState>(INITIAL_STATE);
   const [isLoading, setIsLoading] = useState(false);
   const [processingStep, setProcessingStep] = useState('');
@@ -274,12 +391,14 @@ export default function App() {
 
   // Gamification + mission state (loaded from localStorage)
   const savedState = useMemo(() => loadDailyState(), []);
+  const hasCompletedOnboarding = forceOnboarding ? false : savedState.onboarded;
   const [xp, setXp] = useState(0);
   const [cefrLevel, setCefrLevel] = useState('A0');
   const [streak, setStreak] = useState(0);
   const [qualityStreak, setQualityStreak] = useState(0);
   const [combo, setCombo] = useState(0);
   const [dailyMinutes, setDailyMinutes] = useState(savedState.dailyMinutes);
+  const [learnerLevel, setLearnerLevel] = useState<LearnerLevel>(savedState.learnerLevel);
   const [missionIndex, setMissionIndex] = useState(savedState.missionIndex);
   const [missionDone, setMissionDone] = useState<Record<string, boolean>>(savedState.missionDone);
   const [missionsCompletedToday, setMissionsCompletedToday] = useState(savedState.missionsCompletedToday);
@@ -287,10 +406,10 @@ export default function App() {
   const [lastLatency, setLastLatency] = useState<{ stt: number; llm: number; total: number } | null>(null);
 
   // Onboarding + mascot overlay
-  const [showOnboarding, setShowOnboarding] = useState(!savedState.onboarded);
+  const [showOnboarding, setShowOnboarding] = useState(!hasCompletedOnboarding);
   const [onboardingStep, setOnboardingStep] = useState(1);
   const [mascotOverlay, setMascotOverlay] = useState<{ type: MascotOverlayProps['type']; data?: any } | null>(
-    !savedState.onboarded ? { type: 'onboarding' } : null
+    !hasCompletedOnboarding ? { type: 'onboarding' } : null
   );
   const [canvasFailed, setCanvasFailed] = useState(false);
   const [canvasResetKey, setCanvasResetKey] = useState(0);
@@ -329,8 +448,8 @@ export default function App() {
 
   // Dynamic daily missions from missions.ts
   const missionDeck = useMemo(
-    () => getDailyMissions(dailyMinutes, fadingTargets),
-    [dailyMinutes, fadingTargets]
+    () => getDailyMissions(dailyMinutes, fadingTargets, learnerLevel),
+    [dailyMinutes, fadingTargets, learnerLevel]
   );
 
   const activeMission = missionDeck[missionIndex % missionDeck.length] as MissionWithTasks | undefined;
@@ -702,7 +821,7 @@ export default function App() {
         const next = { ...prev };
         let changed = false;
         for (const task of activeMissionSafe.tasks) {
-          if (!next[task.id] && evalTask(task.id, activeMissionSafe, analysis?.acceptedUnits || [], userText, quality, fadingTargets)) {
+          if (!next[task.id] && evalTask(task.id, activeMissionSafe, analysis?.acceptedUnits || [], userText, quality, fadingTargets, learnerLevel)) {
             next[task.id] = true;
             changed = true;
           }
@@ -942,7 +1061,7 @@ export default function App() {
         ? 'text-amber-300'
         : 'text-red-300';
   const liveMissionObjective = (lastAnalysis?.missionHint || activeMissionSafe.objective || '')
-    .replace(/^Mission\s+[A-C][12](?:[+-])?\s*(?:[-–:])\s*/i, '')
+    .replace(/^\s*(?:Mission\s+)?(?:[ABC][12](?:[+-])?(?:\s*[-/]\s*(?:[ABC])?[12](?:[+-])?)?)\s*(?:[-–:：])\s*/i, '')
     .trim();
 
   return (
@@ -1601,19 +1720,26 @@ export default function App() {
           type={mascotOverlay.type}
           data={mascotOverlay.data}
           onboardingStep={onboardingStep}
+          selectedMinutes={dailyMinutes}
+          selectedLevel={learnerLevel}
           onSelectMinutes={(m: number) => {
             setDailyMinutes(m);
             setOnboardingStep(3);
             setMascotOverlay({ type: 'onboarding', data: { minutes: m } });
           }}
+          onSelectLevel={(level: LearnerLevel) => {
+            setLearnerLevel(level);
+            setOnboardingStep(4);
+            setMascotOverlay({ type: 'onboarding', data: { minutes: dailyMinutes, level } });
+          }}
           onDismiss={() => {
             if (mascotOverlay.type === 'onboarding') {
-              if (onboardingStep < 3) {
+              if (onboardingStep < 4) {
                 setOnboardingStep((s) => s + 1);
                 setMascotOverlay({ type: 'onboarding' });
               } else {
                 // Onboarding complete
-                saveOnboarding(dailyMinutes);
+                saveOnboarding(dailyMinutes, learnerLevel);
                 setShowOnboarding(false);
                 setMascotOverlay({ type: 'mission_intro', data: activeMissionSafe });
               }
