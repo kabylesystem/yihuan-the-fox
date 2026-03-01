@@ -523,6 +523,7 @@ export default function App() {
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
   const ttsFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ttsPlaybackSettledRef = useRef(false);
+  const ttsExpectedTurnRef = useRef(0);
   const cachedVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
   const cachedVoiceLangRef = useRef<string>('');
   const targetLanguageRef = useRef(targetLanguage);
@@ -587,9 +588,11 @@ export default function App() {
   const playTtsPayload = useCallback((tts: any) => {
     if (!tts) return;
     if (ttsPlaybackSettledRef.current) return;
+    const myTurn = ttsExpectedTurnRef.current;
 
     const fallbackText = tts?.text || lastAiTextRef.current;
     const markSpoken = () => {
+      if (ttsExpectedTurnRef.current !== myTurn) return; // stale TTS from previous turn
       ttsPlaybackSettledRef.current = true;
       if (ttsFallbackTimerRef.current) {
         clearTimeout(ttsFallbackTimerRef.current);
@@ -627,6 +630,7 @@ export default function App() {
 
     if (tts.mode === 'audio' && tts.audio_base64) {
       try {
+        if (ttsExpectedTurnRef.current !== myTurn) return; // stale
         if (activeAudioRef.current) {
           activeAudioRef.current.pause();
           activeAudioRef.current = null;
@@ -866,6 +870,7 @@ export default function App() {
     setIsLoading(true);
     setLiveTranscript('');
     ttsPlaybackSettledRef.current = false;
+    ttsExpectedTurnRef.current += 1;
     setTtsPlaying(false);
     triggerShootingStar();
 
