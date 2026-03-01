@@ -1817,8 +1817,8 @@ export default function App() {
         </motion.div>
 
         {/* ── Central Voice HUD (bottom center) ─────────────────────── */}
-        <div className="flex justify-center items-end pointer-events-auto max-h-[85vh] overflow-visible">
-          <div className="flex flex-col items-center gap-2 max-w-2xl w-full">
+        <div className="absolute bottom-6 left-0 right-0 flex justify-center items-end pointer-events-none px-4">
+          <div className="flex flex-col items-center gap-2 max-w-2xl w-full pointer-events-auto">
 
             {/* Transcript area */}
             <AnimatePresence>
