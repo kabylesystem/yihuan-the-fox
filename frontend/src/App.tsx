@@ -5,6 +5,10 @@ import { analyzeInput, checkBackend, isUsingBackend, resetMockState, getMockTurn
 import { onConnectionStatusChange, ConnectionStatus, resetSession } from './services/backendService';
 import { Send, Brain, Zap, Info, Loader2, Search, Filter, Mic, Clock, X, MessageSquare, User, Bot, ChevronDown, ChevronUp, Plane, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useFlightModeMachine } from './components/navigation/useFlightModeMachine';
+import { FlightModeChoice } from './components/navigation/FlightModeChoice';
+import { StarcorePanel } from './components/navigation/StarcorePanel';
+import { StarcoreSessionView } from './components/navigation/StarcoreSessionView';
 
 const INITIAL_STATE: NebulaState = {
   neurons: [],
@@ -61,11 +65,21 @@ export default function App() {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [demoComplete, setDemoComplete] = useState(false);
+  const [isStarcoreSessionOpen, setIsStarcoreSessionOpen] = useState(false);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+
+  const {
+    phase: flightPhase,
+    branch: flightBranch,
+    decayingNeuron,
+    chooseBranch,
+    notifyTravelArrived,
+    notifyFocusComplete,
+  } = useFlightModeMachine(isFlying, state.neurons);
 
   // ── Initialize: check backend availability ───────────────────────────
   useEffect(() => {
@@ -97,8 +111,8 @@ export default function App() {
       setShowChat(true);
       const dimmingNeurons = state.neurons.filter(n => !n.isShadow && n.strength < 0.4);
       const suggestion = dimmingNeurons.length > 0
-        ? `Neural Navigator reporting for duty! I notice your memory of "${dimmingNeurons[0].label}" is dimming. Shall we fly there for a quick review?`
-        : "Neural Navigator online. All systems green. Where shall we explore today?";
+        ? `I've detected that your memory of "${dimmingNeurons[0].label}" is fading. Shall we jump back for a quick recalibration?`
+        : 'Navigation online. All systems ready. Where shall we explore today?';
 
       setState(prev => ({
         ...prev,
@@ -253,6 +267,13 @@ export default function App() {
     if (!searchQuery) return null;
     return state.neurons.find(n => n.label.toLowerCase().includes(searchQuery.toLowerCase())) || null;
   }, [searchQuery, state.neurons]);
+  const isStarcoreView = isFlying && flightPhase === 'starcoreOpen';
+
+  useEffect(() => {
+    if (!isStarcoreView) {
+      setIsStarcoreSessionOpen(false);
+    }
+  }, [isStarcoreView]);
 
   // ── Connection badge ─────────────────────────────────────────────────
   const connectionBadge = isDemoMode ? (
@@ -283,6 +304,10 @@ export default function App() {
           shootingStars={shootingStars}
           onShootingStarComplete={handleShootingStarComplete}
           isFlying={isFlying}
+          flightPhase={flightPhase}
+          flightBranch={flightBranch}
+          onFlightTravelArrive={notifyTravelArrived}
+          onFlightFocusComplete={notifyFocusComplete}
         />
 
         {/* UI Overlay */}
@@ -459,6 +484,14 @@ export default function App() {
             </div>
           </div>
 
+          <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2">
+            <FlightModeChoice
+              visible={isFlying && flightPhase === 'choose'}
+              onRelight={() => chooseBranch('relight')}
+              onExplore={() => chooseBranch('explore')}
+            />
+          </div>
+
           {/* Bottom Control Area */}
           <AnimatePresence>
             {!showChat && !isFlying && (
@@ -623,11 +656,11 @@ export default function App() {
             <div className="p-6 border-b border-white/10 flex justify-between items-center">
               <div className="flex items-center gap-3">
                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${
-                  isFlying ? 'bg-blue-500/20 border-blue-500/30' : 'bg-emerald-500/20 border-emerald-500/30'
+                  isStarcoreView ? 'bg-cyan-500/20 border-cyan-500/30' : isFlying ? 'bg-blue-500/20 border-blue-500/30' : 'bg-emerald-500/20 border-emerald-500/30'
                 }`}>
-                  {isFlying ? <Plane className="text-blue-400" size={18} /> : <MessageSquare className="text-emerald-400" size={18} />}
+                  {isStarcoreView ? <Zap className="text-cyan-300" size={18} /> : isFlying ? <Plane className="text-blue-400" size={18} /> : <MessageSquare className="text-emerald-400" size={18} />}
                 </div>
-                <h2 className="font-bold text-lg">{isFlying ? 'Neural Navigator' : 'Neural Dialogue'}</h2>
+                <h2 className="font-bold text-lg">{isStarcoreView ? 'Starcore Console' : isFlying ? 'Neural Navigator' : 'Neural Dialogue'}</h2>
               </div>
               <button
                 onClick={() => setShowChat(false)}
@@ -637,153 +670,168 @@ export default function App() {
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-hide">
-              {state.messages.map((msg) => (
-                <motion.div
-                  key={msg.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
-                >
-                  <div className={`w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center border ${
-                    msg.role === 'user' ? 'bg-emerald-500/20 border-emerald-500/30' :
-                    msg.id.startsWith('nav-') ? 'bg-blue-500/20 border-blue-500/30' : 'bg-white/10 border-white/10'
-                  }`}>
-                    {msg.role === 'user' ? <User size={16} className="text-emerald-400" /> :
-                     msg.id.startsWith('nav-') ? <Plane size={16} className="text-blue-400" /> : <Bot size={16} className="text-white/60" />}
-                  </div>
-                  <div className={`max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed ${
-                    msg.role === 'user'
-                      ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-50'
-                      : msg.id.startsWith('nav-')
-                      ? 'bg-blue-500/10 border border-blue-500/20 text-blue-50'
-                      : 'bg-white/5 border border-white/10 text-white/80'
-                  }`}>
-                    {msg.id.startsWith('nav-') && <div className="text-[10px] uppercase tracking-widest font-bold text-blue-400 mb-1">Neural Navigator</div>}
-                    {msg.text}
+            {isStarcoreView ? (
+              isStarcoreSessionOpen ? (
+                <StarcoreSessionView
+                  branch={flightBranch}
+                  targetLabel={flightBranch === 'relight' ? decayingNeuron?.label : 'Frontier i+1 Sector'}
+                  onBack={() => setIsStarcoreSessionOpen(false)}
+                />
+              ) : (
+                <StarcorePanel
+                  branch={flightBranch}
+                  targetLabel={flightBranch === 'relight' ? decayingNeuron?.label : 'Frontier i+1 Sector'}
+                  onOpenSession={() => setIsStarcoreSessionOpen(true)}
+                />
+              )
+            ) : (
+              <>
+                <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-hide">
+                  {state.messages.map((msg) => (
+                    <motion.div
+                      key={msg.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
+                    >
+                      <div className={`w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center border ${
+                        msg.role === 'user' ? 'bg-emerald-500/20 border-emerald-500/30' :
+                        msg.id.startsWith('nav-') ? 'bg-blue-500/20 border-blue-500/30' : 'bg-white/10 border-white/10'
+                      }`}>
+                        {msg.role === 'user' ? <User size={16} className="text-emerald-400" /> :
+                         msg.id.startsWith('nav-') ? <Plane size={16} className="text-blue-400" /> : <Bot size={16} className="text-white/60" />}
+                      </div>
+                      <div className={`max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed ${
+                        msg.role === 'user'
+                          ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-50'
+                          : msg.id.startsWith('nav-')
+                          ? 'bg-blue-500/10 border border-blue-500/20 text-blue-50'
+                          : 'bg-white/5 border border-white/10 text-white/80'
+                      }`}>
+                        {msg.id.startsWith('nav-') && <div className="text-[10px] uppercase tracking-widest font-bold text-blue-400 mb-1">Neural Navigator</div>}
+                        {msg.text}
 
-                    {msg.analysis && (
-                      <div className="mt-3 pt-3 border-t border-white/10">
-                        <button
-                          onClick={() => setExpandedAnalysis(expandedAnalysis === msg.id ? null : msg.id)}
-                          className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold text-emerald-400/60 hover:text-emerald-400 transition-colors"
-                        >
-                          {expandedAnalysis === msg.id ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
-                          {expandedAnalysis === msg.id ? 'Hide Details' : 'Show Details'}
-                        </button>
-
-                        <AnimatePresence>
-                          {expandedAnalysis === msg.id && (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              className="overflow-hidden mt-3 space-y-4"
+                        {msg.analysis && (
+                          <div className="mt-3 pt-3 border-t border-white/10">
+                            <button
+                              onClick={() => setExpandedAnalysis(expandedAnalysis === msg.id ? null : msg.id)}
+                              className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold text-emerald-400/60 hover:text-emerald-400 transition-colors"
                             >
-                              <div className="space-y-2">
-                                <div className="text-[9px] uppercase tracking-widest text-white/30 font-bold">Vocabulary</div>
-                                <div className="grid grid-cols-1 gap-2">
-                                  {msg.analysis.vocabulary.map((v, i) => (
-                                    <div key={i} className="bg-white/5 p-2 rounded-lg border border-white/5 flex justify-between items-center">
-                                      <div>
-                                        <div className="text-xs font-bold text-emerald-50">{v.word}</div>
-                                        <div className="text-[10px] text-white/40 italic">{v.type}</div>
-                                      </div>
-                                      <div className="text-right">
-                                        <div className="text-[10px] text-white/60">{v.translation}</div>
-                                        {v.isNew && <span className="text-[8px] bg-emerald-500/20 text-emerald-400 px-1 rounded uppercase font-bold ml-1">New</span>}
+                              {expandedAnalysis === msg.id ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                              {expandedAnalysis === msg.id ? 'Hide Details' : 'Show Details'}
+                            </button>
+
+                            <AnimatePresence>
+                              {expandedAnalysis === msg.id && (
+                                <motion.div
+                                  initial={{ height: 0, opacity: 0 }}
+                                  animate={{ height: 'auto', opacity: 1 }}
+                                  exit={{ height: 0, opacity: 0 }}
+                                  className="overflow-hidden mt-3 space-y-4"
+                                >
+                                  <div className="space-y-2">
+                                    <div className="text-[9px] uppercase tracking-widest text-white/30 font-bold">Vocabulary</div>
+                                    <div className="grid grid-cols-1 gap-2">
+                                      {msg.analysis.vocabulary.map((v, i) => (
+                                        <div key={i} className="bg-white/5 p-2 rounded-lg border border-white/5 flex justify-between items-center">
+                                          <div>
+                                            <div className="text-xs font-bold text-emerald-50">{v.word}</div>
+                                            <div className="text-[10px] text-white/40 italic">{v.type}</div>
+                                          </div>
+                                          <div className="text-right">
+                                            <div className="text-[10px] text-white/60">{v.translation}</div>
+                                            {v.isNew && <span className="text-[8px] bg-emerald-500/20 text-emerald-400 px-1 rounded uppercase font-bold ml-1">New</span>}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <div className="text-[9px] uppercase tracking-widest text-white/30 font-bold">New Elements</div>
+                                    <div className="flex flex-wrap gap-1">
+                                      {msg.analysis.newElements.map((el, i) => (
+                                        <span key={i} className="text-[9px] bg-emerald-500/10 text-emerald-400/80 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                                          {el}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1">
+                                      <div className="text-[9px] uppercase tracking-widest text-white/30 font-bold">Level</div>
+                                      <div className="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded border border-emerald-500/20 text-center">
+                                        {msg.analysis.level}
                                       </div>
                                     </div>
-                                  ))}
-                                </div>
-                              </div>
-
-                              <div className="space-y-2">
-                                <div className="text-[9px] uppercase tracking-widest text-white/30 font-bold">New Elements</div>
-                                <div className="flex flex-wrap gap-1">
-                                  {msg.analysis.newElements.map((el, i) => (
-                                    <span key={i} className="text-[9px] bg-emerald-500/10 text-emerald-400/80 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                                      {el}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-3">
-                                <div className="space-y-1">
-                                  <div className="text-[9px] uppercase tracking-widest text-white/30 font-bold">Level</div>
-                                  <div className="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded border border-emerald-500/20 text-center">
-                                    {msg.analysis.level}
+                                    <div className="space-y-1">
+                                      <div className="text-[9px] uppercase tracking-widest text-white/30 font-bold">Progress</div>
+                                      <div className="text-[10px] text-white/60 leading-tight">
+                                        {msg.analysis.progress}
+                                      </div>
+                                    </div>
                                   </div>
-                                </div>
-                                <div className="space-y-1">
-                                  <div className="text-[9px] uppercase tracking-widest text-white/30 font-bold">Progress</div>
-                                  <div className="text-[10px] text-white/60 leading-tight">
-                                    {msg.analysis.progress}
-                                  </div>
-                                </div>
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        )}
                       </div>
-                    )}
+                    </motion.div>
+                  ))}
+                  <div ref={chatEndRef} />
+                </div>
+
+                <div className="p-6 bg-white/5 border-t border-white/10">
+                  <div className="flex flex-col gap-3">
+                    <form onSubmit={handleTextSubmit} className="flex gap-2">
+                      <input
+                        type="text"
+                        value={textInput}
+                        onChange={(e) => setTextInput(e.target.value)}
+                        placeholder={isDemoMode ? "Type or click mic for demo..." : "Type in French..."}
+                        disabled={isLoading || demoComplete}
+                        className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-emerald-500/50 transition-all disabled:opacity-50"
+                      />
+                      <button
+                        type="submit"
+                        disabled={isLoading || !textInput.trim() || demoComplete}
+                        className="px-4 py-3 bg-emerald-500/20 border border-emerald-500/30 rounded-xl text-emerald-400 hover:bg-emerald-500/30 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        <Send size={18} />
+                      </button>
+                    </form>
+
+                    <motion.button
+                      whileTap={{ scale: 0.95 }}
+                      onClick={handleVoiceToggle}
+                      disabled={isLoading || demoComplete}
+                      className={`h-12 rounded-xl flex items-center justify-center gap-3 transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
+                        isListening
+                          ? 'bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.3)]'
+                          : isFlying
+                          ? 'bg-blue-500 text-white shadow-[0_0_20px_rgba(59,130,246,0.3)]'
+                          : 'bg-emerald-500 text-white shadow-[0_0_20px_rgba(16,185,129,0.3)]'
+                      }`}
+                    >
+                      {isListening ? <Loader2 className="animate-spin" size={18} /> : isFlying ? <Plane size={18} /> : <Mic size={18} />}
+                      <span className="font-bold text-sm uppercase tracking-widest">
+                        {demoComplete ? 'Demo Complete' :
+                         isListening ? 'Listening... tap to stop' :
+                         isDemoMode ? `Demo Turn ${Math.min(getMockTurnIndex() + 1, getTotalMockTurns())}/${getTotalMockTurns()}` :
+                         isFlying ? 'Talk to Navigator' : 'Hold to Speak'}
+                      </span>
+                    </motion.button>
+
+                    <p className="text-[10px] text-center text-white/30 uppercase tracking-widest">
+                      {isDemoMode ? 'French A1 to A2 progression demo' :
+                       isFlying ? 'The Navigator is listening to your commands' : 'Speak French and grow your neural nebula'}
+                    </p>
                   </div>
-                </motion.div>
-              ))}
-              <div ref={chatEndRef} />
-            </div>
-
-            {/* Chat Input Area */}
-            <div className="p-6 bg-white/5 border-t border-white/10">
-              <div className="flex flex-col gap-3">
-                {/* Text input */}
-                <form onSubmit={handleTextSubmit} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={textInput}
-                    onChange={(e) => setTextInput(e.target.value)}
-                    placeholder={isDemoMode ? "Type or click mic for demo..." : "Type in French..."}
-                    disabled={isLoading || demoComplete}
-                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-emerald-500/50 transition-all disabled:opacity-50"
-                  />
-                  <button
-                    type="submit"
-                    disabled={isLoading || !textInput.trim() || demoComplete}
-                    className="px-4 py-3 bg-emerald-500/20 border border-emerald-500/30 rounded-xl text-emerald-400 hover:bg-emerald-500/30 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    <Send size={18} />
-                  </button>
-                </form>
-
-                {/* Voice button */}
-                <motion.button
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handleVoiceToggle}
-                  disabled={isLoading || demoComplete}
-                  className={`h-12 rounded-xl flex items-center justify-center gap-3 transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
-                    isListening
-                      ? 'bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.3)]'
-                      : isFlying
-                      ? 'bg-blue-500 text-white shadow-[0_0_20px_rgba(59,130,246,0.3)]'
-                      : 'bg-emerald-500 text-white shadow-[0_0_20px_rgba(16,185,129,0.3)]'
-                  }`}
-                >
-                  {isListening ? <Loader2 className="animate-spin" size={18} /> : isFlying ? <Plane size={18} /> : <Mic size={18} />}
-                  <span className="font-bold text-sm uppercase tracking-widest">
-                    {demoComplete ? 'Demo Complete' :
-                     isListening ? 'Listening... tap to stop' :
-                     isDemoMode ? `Demo Turn ${Math.min(getMockTurnIndex() + 1, getTotalMockTurns())}/${getTotalMockTurns()}` :
-                     isFlying ? 'Talk to Navigator' : 'Hold to Speak'}
-                  </span>
-                </motion.button>
-
-                <p className="text-[10px] text-center text-white/30 uppercase tracking-widest">
-                  {isDemoMode ? 'French A1 to A2 progression demo' :
-                   isFlying ? 'The Navigator is listening to your commands' : 'Speak French and grow your neural nebula'}
-                </p>
-              </div>
-            </div>
+                </div>
+              </>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

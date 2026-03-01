@@ -1,10 +1,12 @@
 import React, { useMemo, useRef, useEffect, useState } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, Stars, Text, PerspectiveCamera } from '@react-three/drei';
+import { Canvas, useFrame } from '@react-three/fiber';
+import { OrbitControls, Stars, Text } from '@react-three/drei';
 import * as THREE from 'three';
-import { forceSimulation, forceLink, forceManyBody, forceCenter, forceX, forceY, forceZ } from 'd3-force-3d';
+import { forceSimulation, forceLink, forceManyBody, forceCenter, forceX, forceY } from 'd3-force-3d';
 import { Neuron, Synapse, Category } from '../types';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
+import { FlightCameraRig } from './navigation/FlightCameraRig';
+import { FlightModeBranch, FlightModePhase } from './navigation/flightTypes';
 
 const CATEGORY_COLORS: Record<Category, string> = {
   work: '#3b82f6', // blue
@@ -362,130 +364,22 @@ function PulseWave({ curve, offset, strength, color }: { curve: THREE.Curve<THRE
   );
 }
 
-function Spaceship({ position, target }: { position: THREE.Vector3; target: THREE.Vector3 }) {
-  const meshRef = useRef<THREE.Group>(null);
-  
-  useFrame((state) => {
-    if (meshRef.current) {
-      meshRef.current.position.copy(position);
-      meshRef.current.lookAt(target);
-      // Add a little hover/bobbing effect
-      meshRef.current.position.y += Math.sin(state.clock.getElapsedTime() * 2) * 0.1;
-      // Rotate slightly to face "up" relative to movement
-      meshRef.current.rotateX(Math.PI / 2);
-    }
-  });
-
-  return (
-    <group ref={meshRef}>
-      {/* Main Body - White Middle Section */}
-      <mesh position={[0, 0, 0]}>
-        <sphereGeometry args={[0.4, 32, 32]} />
-        <meshStandardMaterial color="#ffffff" roughness={0.3} />
-      </mesh>
-
-      {/* Top Section - Orange Cone */}
-      <mesh position={[0, 0.35, 0]}>
-        <coneGeometry args={[0.3, 0.6, 32]} />
-        <meshStandardMaterial color="#ff7e47" roughness={0.3} />
-      </mesh>
-      {/* Rounded tip for cone */}
-      <mesh position={[0, 0.65, 0]}>
-        <sphereGeometry args={[0.05, 16, 16]} />
-        <meshStandardMaterial color="#ff7e47" />
-      </mesh>
-
-      {/* Bottom Section - Orange Base */}
-      <mesh position={[0, -0.2, 0]}>
-        <sphereGeometry args={[0.4, 32, 32, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2]} />
-        <meshStandardMaterial color="#ff7e47" roughness={0.3} />
-      </mesh>
-
-      {/* Window Frame - Orange Torus */}
-      <mesh position={[0, 0.1, 0.35]} rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.15, 0.04, 16, 32]} />
-        <meshStandardMaterial color="#ff7e47" />
-      </mesh>
-      {/* Window Glass - Blue Sphere */}
-      <mesh position={[0, 0.1, 0.33]}>
-        <sphereGeometry args={[0.14, 16, 16]} />
-        <meshStandardMaterial color="#1e3a8a" emissive="#1e3a8a" emissiveIntensity={0.5} transparent opacity={0.9} />
-      </mesh>
-
-      {/* Fins - Orange Rounded Boxes */}
-      {[0, Math.PI * 2 / 3, Math.PI * 4 / 3].map((angle, i) => (
-        <group key={i} rotation={[0, angle, 0]}>
-          <mesh position={[0.35, -0.3, 0]} rotation={[0, 0, -Math.PI / 6]}>
-            <boxGeometry args={[0.1, 0.4, 0.3]} />
-            <meshStandardMaterial color="#ff7e47" />
-          </mesh>
-        </group>
-      ))}
-
-      {/* Engine Nozzle - Grey Ribbed */}
-      <mesh position={[0, -0.5, 0]}>
-        <cylinderGeometry args={[0.15, 0.1, 0.2, 16]} />
-        <meshStandardMaterial color="#cccccc" roughness={0.8} />
-      </mesh>
-
-      {/* Engine Glow */}
-      <group position={[0, -0.7, 0]}>
-        <pointLight intensity={3} color="#ffaa00" distance={3} />
-        <mesh>
-          <sphereGeometry args={[0.15, 8, 8]} />
-          <meshBasicMaterial color="#ffaa00" transparent opacity={0.6} />
-        </mesh>
-      </group>
-    </group>
-  );
-}
-
-function CameraController({ targetNode, isFlying, isFocused }: { targetNode: Neuron | null; isFlying: boolean; isFocused?: boolean }) {
-  const { camera, controls } = useThree() as any;
-  const flightAngle = useRef(0);
-  const [shipPos] = useState(() => new THREE.Vector3());
-  const [shipTarget] = useState(() => new THREE.Vector3());
-  
-  useFrame((state, delta) => {
-    if (isFocused && targetNode && targetNode.x !== undefined) {
-      // When a node is focused, zoom in closer for better view
-      const targetPos = new THREE.Vector3(targetNode.x, targetNode.y, targetNode.z + 8);
-      camera.position.lerp(targetPos, 0.08);
-      if (controls) {
-        controls.target.lerp(new THREE.Vector3(targetNode.x, targetNode.y, targetNode.z), 0.08);
-      }
-    } else if (targetNode && targetNode.x !== undefined) {
-      const targetPos = new THREE.Vector3(targetNode.x, targetNode.y, targetNode.z + 5);
-      camera.position.lerp(targetPos, 0.05);
-      if (controls) {
-        controls.target.lerp(new THREE.Vector3(targetNode.x, targetNode.y, targetNode.z), 0.05);
-      }
-    } else if (isFlying) {
-      // Interstellar flight logic: move camera in a large circle or path
-      flightAngle.current += delta * 0.05; // Slower, more majestic flight
-      const radius = 20;
-      const x = Math.cos(flightAngle.current) * radius;
-      const z = Math.sin(flightAngle.current) * radius;
-      const y = Math.sin(flightAngle.current * 0.5) * 8;
-
-      const flightPos = new THREE.Vector3(x, y, z);
-      camera.position.lerp(flightPos, 0.01);
-
-      // Update ship position to be slightly in front of camera
-      const shipOffset = new THREE.Vector3(0, -1.2, -4).applyQuaternion(camera.quaternion);
-      shipPos.copy(camera.position).add(shipOffset);
-      shipTarget.copy(camera.position).add(new THREE.Vector3(0, 0, -10).applyQuaternion(camera.quaternion));
-
-      if (controls) {
-        controls.target.lerp(new THREE.Vector3(0, 0, 0), 0.01);
-      }
-    }
-  });
-
-  return isFlying ? <Spaceship position={shipPos} target={shipTarget} /> : null;
-}
-
-export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick, filterCategory, searchTarget, timePulse, shootingStars, onShootingStarComplete, isFlying }: { 
+export function NebulaCanvas({
+  neurons,
+  synapses,
+  onNeuronClick,
+  onSynapseClick,
+  filterCategory,
+  searchTarget,
+  timePulse,
+  shootingStars,
+  onShootingStarComplete,
+  isFlying,
+  flightPhase,
+  flightBranch,
+  onFlightTravelArrive,
+  onFlightFocusComplete,
+}: {
   neurons: Neuron[]; 
   synapses: Synapse[];
   onNeuronClick: (n: Neuron) => void;
@@ -496,6 +390,10 @@ export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick,
   shootingStars: string[]; // IDs of shooting stars
   onShootingStarComplete: (id: string) => void;
   isFlying: boolean;
+  flightPhase: FlightModePhase;
+  flightBranch: FlightModeBranch;
+  onFlightTravelArrive: () => void;
+  onFlightFocusComplete: () => void;
 }) {
   // Use local state for positioned nodes to avoid prop mutation issues
   const [positionedNodes, setPositionedNodes] = useState<Neuron[]>([]);
@@ -622,7 +520,14 @@ export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick,
           ))}
         </group>
 
-        <CameraController targetNode={activeSearchTarget} isFlying={isFlying} isFocused={focusNodeId !== null} />
+        <FlightCameraRig
+          phase={isFlying ? flightPhase : 'hidden'}
+          branch={flightBranch}
+          nodes={positionedNodes}
+          searchTarget={activeSearchTarget}
+          onTravelArrive={onFlightTravelArrive}
+          onFocusComplete={onFlightFocusComplete}
+        />
 
         <EffectComposer>
           <Bloom luminanceThreshold={0.1} luminanceSmoothing={0.9} height={300} intensity={1.5} />
