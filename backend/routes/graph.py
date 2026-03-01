@@ -131,7 +131,7 @@ async def graph_nodes() -> list[dict]:
                 matched = [u for u in accepted_units if _norm_text(u.get("text", "")) == _norm_text(word)]
                 unit_kind = next((u.get("kind") for u in matched), "word")
                 canonical = next((u.get("canonical_key", "") for u in matched), "")
-                node_type = "sentence" if unit_kind == "chunk" or " " in word else ("grammar" if unit_kind == "pattern" else "vocab")
+                node_type = "sentence" if unit_kind in ("sentence", "chunk") or " " in word else ("grammar" if unit_kind == "pattern" else "vocab")
 
                 stat = unit_stats.get(word, {"count": 0, "sum_conf": 0.0, "first_turn": tn, "last_turn": tn, "canonical": canonical, "node_type": node_type, "unit_kind": unit_kind})
                 stat["count"] += 1
@@ -148,7 +148,7 @@ async def graph_nodes() -> list[dict]:
         reuse_score = min(1.0, (stat["count"] - 1) / 4)
         recency_decay = max(0.0, 1.0 - ((state.turn - stat["last_turn"]) * 0.08))
         learned_mastery = 0.22 + (avg_conf * 0.38) + (reuse_score * 0.30) + (recency_decay * 0.10)
-        if stat["unit_kind"] == "pattern":
+        if stat["unit_kind"] in ("pattern", "sentence"):
             learned_mastery += 0.05
         history_mastery = state.mastery_scores.get(word, learned_mastery)
         mastery = min(1.0, max(0.15, (learned_mastery * 0.65) + (history_mastery * 0.35)))
@@ -210,6 +210,24 @@ async def graph_links() -> list[dict]:
             ).model_dump()
         )
 
+    # Strategy 0: Derivation links — sentence structure → contextual extensions (same turn)
+    for t in state.conversation_history:
+        t_data = t.model_dump()
+        resp = t_data["response"]
+        tn = t_data["turn_number"]
+        units = resp.get("validated_user_units") or []
+        accepted_units = [u for u in units if u.get("is_accepted")]
+        sentences = [u for u in accepted_units if u.get("kind") == "sentence"]
+        extensions = [u for u in accepted_units if u.get("kind") in ("chunk", "word")]
+        for sent in sentences:
+            sent_text = _norm_text(sent.get("text", ""))
+            for ext in extensions:
+                ext_text = _norm_text(ext.get("text", ""))
+                if ext_text and ext_text in sent_text:
+                    _add_link(sent["text"], ext["text"], "semantic", tn,
+                             "Contextual extension of sentence structure.",
+                             [sent["text"], ext["text"]])
+
     # Strategy 1: AI-provided explicit graph links (highest quality)
     for t in state.conversation_history:
         t_data = t.model_dump()
@@ -217,7 +235,8 @@ async def graph_links() -> list[dict]:
         tn = t_data["turn_number"]
         for gl in resp.get("graph_links") or []:
             rel_map = {"semantic": "semantic", "conjugation": "conjugation",
-                       "prerequisite": "prerequisite", "correction": "reactivation"}
+                       "prerequisite": "prerequisite", "correction": "reactivation",
+                       "derivation": "semantic"}
             _add_link(gl.get("source", ""), gl.get("target", ""),
                       rel_map.get(gl.get("type", ""), "semantic"), tn,
                       "Explicit pedagogical relationship provided by tutor.",

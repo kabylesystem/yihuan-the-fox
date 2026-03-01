@@ -127,16 +127,23 @@ def _mission_keywords(mission_hint: str) -> set[str]:
 
 
 def _canonicalize_candidates(raw_units: list[str], corrected_text: str, source_text: str) -> list[dict]:
-    """Canonicalize candidates with precedence pattern > chunk > word."""
+    """Canonicalize candidates with precedence pattern > sentence > chunk > word."""
     items: list[dict] = _extract_pattern_candidates(corrected_text)
     seen_norm: set[str] = set()
 
-    for raw in raw_units:
+    for idx, raw in enumerate(raw_units):
         text = _normalize_text(raw)
         if not text or text in seen_norm:
             continue
         seen_norm.add(text)
-        kind = "chunk" if _contains_space(text) else "word"
+        tokens = _tokenize(text)
+        # Sentence = multi-word phrase with 3+ tokens (typically the first item from the LLM)
+        if _contains_space(text) and len(tokens) >= 3:
+            kind = "sentence"
+        elif _contains_space(text):
+            kind = "chunk"
+        else:
+            kind = "word"
         canonical_key = f"{kind}:{text}"
         if text.startswith("je suis "):
             canonical_key = "pattern:identity_je_suis_noun"
@@ -161,26 +168,28 @@ def _canonicalize_candidates(raw_units: list[str], corrected_text: str, source_t
             "canonical_key": canonical_key,
         })
 
-    # Add words from corrected text as fallback lexical candidates
-    for tok in _tokenize(corrected_text):
-        if tok in _STOP_WORDS or len(tok) <= 1:
-            continue
-        key = f"word:{tok}"
-        if any(i.get("canonical_key") == key for i in items):
-            continue
-        items.append({
-            "text": tok,
-            "kind": "word",
-            "source": "corrected",
-            "canonical_key": key,
-        })
+    # Only add individual word fallbacks if we have zero sentence/chunk/pattern candidates
+    has_phrases = any(i["kind"] in ("sentence", "chunk", "pattern") for i in items)
+    if not has_phrases:
+        for tok in _tokenize(corrected_text):
+            if tok in _STOP_WORDS or len(tok) <= 1:
+                continue
+            key = f"word:{tok}"
+            if any(i.get("canonical_key") == key for i in items):
+                continue
+            items.append({
+                "text": tok,
+                "kind": "word",
+                "source": "corrected",
+                "canonical_key": key,
+            })
 
     # Group by canonical key and keep best by precedence.
-    rank = {"pattern": 3, "chunk": 2, "word": 1}
+    rank = {"pattern": 4, "sentence": 3, "chunk": 2, "word": 1}
     grouped: dict[str, dict] = {}
     for item in items:
         key = item["canonical_key"]
-        if key not in grouped or rank[item["kind"]] > rank[grouped[key]["kind"]]:
+        if key not in grouped or rank.get(item["kind"], 0) > rank.get(grouped[key]["kind"], 0):
             grouped[key] = item
     return list(grouped.values())
 
@@ -208,7 +217,7 @@ def _strict_validate_units(
         canonical_key = item["canonical_key"]
         tokens = set(_tokenize(text))
 
-        if kind != "pattern":
+        if kind not in ("pattern", "sentence"):
             if kind == "chunk" and text in {"je suis", "j'aime", "j'ai envie de", "jai envie de"}:
                 rejected.append({
                     "text": text, "kind": kind, "source": item["source"],
@@ -216,7 +225,7 @@ def _strict_validate_units(
                     "canonical_key": canonical_key, "mission_relevance": 0.0,
                 })
                 continue
-            if kind == "chunk" and len(tokens) >= 5 and not canonical_key.startswith("pattern:"):
+            if kind == "chunk" and len(tokens) >= 10 and not canonical_key.startswith("pattern:"):
                 rejected.append({
                     "text": text, "kind": kind, "source": item["source"],
                     "confidence": 0.5, "is_accepted": False, "reject_reason": "too_broad",
@@ -242,11 +251,11 @@ def _strict_validate_units(
         if mission_kw:
             overlap = len(tokens.intersection(mission_kw))
             mission_relevance = min(1.0, overlap / max(1, len(mission_kw)))
-        if kind == "pattern":
+        if kind in ("pattern", "sentence"):
             mission_relevance = max(mission_relevance, 0.7)
 
-        in_corrected = text in corrected_text or canonical_key.startswith("pattern:")
-        in_source = text in source_text
+        in_corrected = text in corrected_text or canonical_key.startswith("pattern:") or kind == "sentence"
+        in_source = text in source_text or kind == "sentence"
         if corrected_form and not in_corrected and kind in ("chunk", "word"):
             rejected.append({
                 "text": text, "kind": kind, "source": item["source"],
@@ -257,6 +266,8 @@ def _strict_validate_units(
         confidence = 0.9 if (in_source and in_corrected) else (0.75 if (in_source or in_corrected) else 0.55)
         if kind == "pattern":
             confidence = max(confidence, 0.82)
+        if kind == "sentence":
+            confidence = max(confidence, 0.85)
 
         # Borderline confidence needs mission relevance.
         if confidence < 0.6:
@@ -282,8 +293,8 @@ def _strict_validate_units(
             })
             continue
 
-        # Reject words fully covered by accepted chunks/patterns unless mission-critical.
-        if kind == "word" and any(tokens.issubset(s) for s in selected_token_sets) and mission_relevance < 0.8:
+        # Reject words fully covered by accepted sentences/chunks/patterns unless extremely mission-critical.
+        if kind == "word" and any(tokens.issubset(s) for s in selected_token_sets) and mission_relevance < 0.95:
             rejected.append({
                 "text": text, "kind": kind, "source": item["source"],
                 "confidence": confidence, "is_accepted": False, "reject_reason": "covered_by_chunk",
@@ -302,7 +313,7 @@ def _strict_validate_units(
             "mission_relevance": mission_relevance,
         })
         selected_token_sets.append(tokens)
-        if kind == "pattern":
+        if kind in ("pattern", "sentence"):
             selected_pattern_token_sets.append(tokens)
 
     accepted_ratio = (len(accepted) / max(1, len(canonical_items)))

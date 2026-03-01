@@ -1,10 +1,11 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { NebulaCanvas } from './components/NebulaCanvas';
+import { Dashboard } from './components/Dashboard';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Neuron, Synapse, NebulaState, Category, Message } from './types';
 import { analyzeInput, checkBackend, isUsingBackend, resetMockState, getMockTurnIndex, getTotalMockTurns } from './services/geminiService';
 import { onConnectionStatusChange, onStatusStep, onTTS, ConnectionStatus, hardResetSession } from './services/backendService';
-import { Send, Zap, Info, Loader2, Search, Filter, Mic, Clock, X, MessageSquare, User, Bot, ChevronDown, ChevronUp, Plane, RefreshCw, Wifi, WifiOff, CheckCircle2, Circle, Sparkles, LocateFixed, Trash2, Volume2, FlaskConical } from 'lucide-react';
+import { Send, Zap, Info, Loader2, Search, Filter, Mic, Clock, X, MessageSquare, User, Bot, ChevronDown, ChevronUp, Plane, RefreshCw, Wifi, WifiOff, CheckCircle2, Circle, Sparkles, LocateFixed, Trash2, Volume2, FlaskConical, BarChart2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getDailyMissions, evaluateMissionTask as evalTask, MascotOverlay, loadDailyState, saveOnboarding, saveMissionProgress } from './missions';
 import type { MissionWithTasks, MascotOverlayProps } from './missions';
@@ -288,9 +289,9 @@ export default function App() {
   );
   const [canvasFailed, setCanvasFailed] = useState(false);
   const [canvasResetKey, setCanvasResetKey] = useState(0);
-  const [recenterNonce, setRecenterNonce] = useState(0);
   const [linkInspector, setLinkInspector] = useState<{ reason: string; detail: string; evidence: string[] } | null>(null);
   const [showTestGen, setShowTestGen] = useState(false);
+  const [showDashboard, setShowDashboard] = useState(false);
   const [testGenCount, setTestGenCount] = useState(40);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -504,7 +505,6 @@ export default function App() {
   const handleRecenter = () => {
     setSelectedNeuron(null);
     setSearchQuery('');
-    setRecenterNonce((n) => n + 1);
   };
 
   const missionTasks = useMemo(() => (
@@ -540,7 +540,6 @@ export default function App() {
       synapses: [...prev.synapses, ...synapses],
     }));
     setShowTestGen(false);
-    setRecenterNonce(n => n + 1);
   }, [testGenCount]);
 
   useEffect(() => {
@@ -917,7 +916,6 @@ export default function App() {
           shootingStars={shootingStars}
           onShootingStarComplete={handleShootingStarComplete}
           isFlying={isFlying}
-          recenterNonce={recenterNonce}
         />
       </ErrorBoundary>
       {canvasFailed && (
@@ -1129,6 +1127,13 @@ export default function App() {
                   title="Recenter"
                 >
                   <LocateFixed size={16} />
+                </button>
+                <button
+                  onClick={() => setShowDashboard(true)}
+                  className="w-10 h-10 rounded-xl flex items-center justify-center border transition-all bg-white/[0.08] border-white/[0.14] text-white/50 hover:bg-amber-500/20 hover:border-amber-400/30 hover:text-amber-300"
+                  title="Dashboard"
+                >
+                  <BarChart2 size={16} />
                 </button>
                 <button
                   onClick={handleReset}
@@ -1463,6 +1468,9 @@ export default function App() {
           }}
         />
       )}
+
+      {/* ── Dashboard ──────────────────────────────────────────────── */}
+      <Dashboard isOpen={showDashboard} onClose={() => setShowDashboard(false)} />
 
       {/* ── Neuron Detail Modal ──────────────────────────────────────── */}
       <AnimatePresence>

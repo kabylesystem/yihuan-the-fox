@@ -3,185 +3,157 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Stars, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceX, forceY, forceZ } from 'd3-force-3d';
-import { Neuron, Synapse, Category, LinkKind } from '../types';
+import { Neuron, Synapse, Category } from '../types';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 
-// ── Color Systems ───────────────────────────────────────────────────────
-
-/** Mastery-based node color: red (0) → amber (0.5) → blue (1.0) */
-function getMasteryColor(mastery: number): string {
-  if (mastery < 0.25) return '#9bb4ff';
-  if (mastery < 0.62) return '#4a6fe8';
-  return '#1e3ea8';
-}
-
-function getMasteryColorObj(mastery: number): THREE.Color {
-  return new THREE.Color(getMasteryColor(mastery));
-}
-
-function getNodeVisualColor(mastery: number, nodeKind: string): string {
-  const base = getMasteryColorObj(mastery);
-  const accent = nodeKind === 'grammar'
-    ? new THREE.Color('#60a5fa')
-    : nodeKind === 'sentence'
-      ? new THREE.Color('#a78bfa')
-      : new THREE.Color('#4f6fff');
-  return base.lerp(accent, 0.2).getStyle();
-}
-
-/** Link colors by relationship type */
-const LINK_COLORS: Record<LinkKind, string> = {
-  semantic: '#2a50bf',
-  conjugation: '#3c68ff',
-  prerequisite: '#6f86e8',
-  reactivation: '#2d7cff',
-  mission: '#16389f',
+const CATEGORY_COLORS: Record<Category, string> = {
+  work:     '#3b82f6',
+  daily:    '#ec4899',
+  travel:   '#10b981',
+  social:   '#f59e0b',
+  academic: '#8b5cf6',
+  coding:   '#00ffff',
+  other:    '#6b7280',
 };
 
-function getCategoryAnchor(category: Category): { x: number; y: number; z: number } {
-  const anchors: Record<Category, { x: number; y: number; z: number }> = {
-    daily: { x: 0, y: 0, z: 0 },
-    social: { x: -3.2, y: 2.2, z: 0.5 },
-    travel: { x: 3.1, y: 2.0, z: -0.5 },
-    work: { x: -3.1, y: -2.1, z: -0.4 },
-    academic: { x: 3.2, y: -2.1, z: 0.4 },
-    coding: { x: 0.4, y: 3.1, z: -0.7 },
-    other: { x: 0, y: -3.3, z: 0.3 },
-  };
-  return anchors[category] || anchors.other;
+function ShootingStar({ onComplete }: { onComplete: () => void }) {
+  const meshRef  = useRef<THREE.Mesh>(null);
+  const startPos = useMemo(() => new THREE.Vector3(
+    (Math.random() - 0.5) * 60, (Math.random() - 0.5) * 40, -80
+  ), []);
+  const endPos   = useMemo(() => new THREE.Vector3(
+    (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10, 5
+  ), []);
+  const [progress, setProgress] = useState(0);
+
+  useFrame((_, delta) => {
+    if (progress < 1) {
+      const np = Math.min(1, progress + delta * 1.2);
+      setProgress(np);
+      if (meshRef.current) {
+        meshRef.current.position.lerpVectors(startPos, endPos, np);
+        meshRef.current.scale.setScalar(1 + Math.sin(np * Math.PI) * 3);
+      }
+    } else { onComplete(); }
+  });
+
+  return (
+    <mesh ref={meshRef}>
+      <sphereGeometry args={[0.15, 8, 8]} />
+      <meshBasicMaterial color="#ffffff" transparent opacity={1 - progress} toneMapped={false} />
+      <pointLight intensity={4} color="#aaddff" distance={8} decay={2} />
+    </mesh>
+  );
 }
 
-/** Node size by kind */
-const NODE_RADIUS: Record<string, number> = {
-  sentence: 0.55,
-  grammar: 0.45,
-  vocab: 0.4,
-};
-
-// ── Components ──────────────────────────────────────────────────────────
-
-function NeuronNode({ neuron, onClick, isDimmed, isFocused, compactMode }: {
-  neuron: Neuron;
-  onClick: () => void;
-  isDimmed: boolean;
-  isFocused?: boolean;
-  compactMode?: boolean;
+function NeuronNode({ neuron, onClick, isDimmed, isFocused, isNew, isHighlighted, isStreamingActive }: {
+  neuron: Neuron; onClick: () => void; isDimmed: boolean; isFocused?: boolean;
+  isNew?: boolean;            // just arrived this streaming tick → start grey
+  isHighlighted?: boolean;    // old neuron referenced by new synapse → bioluminescent burst
+  isStreamingActive?: boolean; // streaming in progress → dim everything else
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
-  const ringRef = useRef<THREE.Mesh>(null);
-  const spawnProgress = useRef(neuron.isNew ? 0 : 1);
-  const radius = NODE_RADIUS[neuron.nodeKind] || 0.4;
-  const masteryColor = getMasteryColor(neuron.strength);
-  const visualColor = getNodeVisualColor(neuron.strength, neuron.nodeKind);
-  const ringColor = neuron.nodeKind === 'grammar' ? '#60a5fa' : masteryColor;
+  // Track when highlight first activated for burst animation
+  const highlightStartRef = useRef<number | null>(null);
 
-  useFrame((state, delta) => {
-    if (!meshRef.current) return;
-    const time = state.clock.getElapsedTime();
+  useFrame((state) => {
+    if (meshRef.current) {
+      const time = state.clock.getElapsedTime();
+      const pulse = 1 + Math.sin(time * (0.6 + neuron.potential * 0.8)) * 0.04;
+      const baseScale = neuron.type === 'soma' ? 1.4 : 0.75;
+      const strengthScale = 0.5 + neuron.strength * 0.6;
 
-    // Spawn animation
-    if (spawnProgress.current < 1) {
-      spawnProgress.current = Math.min(1, spawnProgress.current + delta * 2.5);
-    }
-    const spawn = spawnProgress.current;
-    const eased = spawn < 1 ? 1 - Math.pow(1 - spawn, 3) * Math.cos(spawn * Math.PI * 2) : 1;
+      let scale = pulse * baseScale * strengthScale;
+      if (isFocused) scale *= 1.35;
+      if (isHighlighted) {
+        // Record when this node first became highlighted
+        if (highlightStartRef.current === null) highlightStartRef.current = time;
+        const elapsed = time - highlightStartRef.current;
+        // Burst: spike to 2.0× over 0.15s then settle to 1.5× with fast throb
+        const burstDecay = Math.max(0, 1 - elapsed / 0.3);
+        const throb = 1 + Math.sin(time * 8) * 0.08;
+        scale *= (1.5 + burstDecay * 0.5) * throb;
+      } else {
+        // Reset burst timer when no longer highlighted
+        highlightStartRef.current = null;
+      }
 
-    // Subtle pulse
-    let pulse = 1 + Math.sin(time * 0.8) * 0.02;
-    let scale = pulse * eased;
-    if (isFocused) scale *= 1.2;
-    if (neuron.isNew) scale *= 1 + Math.sin(time * 4) * 0.1;
-    if (neuron.justUsed) scale *= 1 + Math.sin(time * 6) * 0.15;
+      meshRef.current.scale.setScalar(scale);
 
-    meshRef.current.scale.setScalar(scale);
-
-    // Opacity
-    const mat = meshRef.current.material as THREE.MeshStandardMaterial;
-    const baseOpacity = Math.max(0.6, Math.min(1, 0.6 + neuron.strength * 0.4));
-    if (neuron.isShadow) {
-      mat.opacity = 0.35;
-      mat.transparent = true;
-    } else {
-      mat.opacity = isDimmed ? 0.22 : baseOpacity;
-      mat.transparent = true;
-    }
-
-    // Emissive glow for new nodes
-    if (neuron.isNew && !neuron.isShadow) {
-      const flashIntensity = 0.6 * (1 - spawnProgress.current) + 0.3;
-      mat.emissiveIntensity = flashIntensity + Math.sin(time * 3) * 0.1;
-    }
-
-    // Live pulse glow for just-used words (reactivation)
-    if (neuron.justUsed && !neuron.isNew) {
-      mat.emissive.set('#ffffff');
-      mat.emissiveIntensity = 0.4 + Math.sin(time * 5) * 0.2;
-    } else if (!neuron.isNew) {
-      mat.emissive.set(visualColor);
-      mat.emissiveIntensity = 0.08;
-    }
-
-    // Ring rotation
-    if (ringRef.current) {
-      ringRef.current.rotation.z = time * 0.3;
-      ringRef.current.scale.setScalar(eased);
+      const mat = meshRef.current.material as THREE.MeshStandardMaterial;
+      if (neuron.isShadow) {
+        mat.opacity = 0.3;
+        mat.transparent = true;
+      } else if (isNew) {
+        // Brand-new neuron: very dark, barely visible — recede into darkness
+        mat.opacity = 0.06;
+        mat.transparent = true;
+      } else if (isHighlighted) {
+        // Fully lit — bioluminescent
+        mat.opacity = 1.0;
+        mat.transparent = false;
+      } else if (isStreamingActive) {
+        // Non-highlighted old nodes recede into darkness during streaming
+        mat.opacity = isDimmed ? 0.05 : 0.1;
+        mat.transparent = true;
+      } else {
+        mat.opacity = isDimmed ? 0.15 : 1;
+        mat.transparent = isDimmed || false;
+      }
     }
   });
 
-  // Grammar nodes get a diamond-like shape indicator
-  const isGrammar = neuron.nodeKind === 'grammar';
+  // isHighlighted overrides dimming — force full brightness on referenced old nodes
+  const effectiveDimmed = isHighlighted ? false : (isNew ? true : isDimmed);
+
+  const emissiveIntensity = neuron.isShadow
+    ? 0.02
+    : isNew
+      ? 0.0
+      : isHighlighted
+        ? 1.2 + neuron.strength * 0.8   // deep bioluminescent blast
+        : isStreamingActive
+          ? 0.005                          // everything else nearly dead
+          : effectiveDimmed
+            ? 0.01
+            : neuron.type === 'soma'
+              ? 0.15 + neuron.strength * 0.25
+              : 0.06 + neuron.strength * 0.1;
+
+  // Grey color for new unconnected neurons; normal category color otherwise
+  const displayColor = isNew ? '#1f2937' : CATEGORY_COLORS[neuron.category];
+  // Highlighted: use a saturated/intensified version of the category color
+  const emissiveColor = isHighlighted ? CATEGORY_COLORS[neuron.category] : (isNew ? '#0f1117' : CATEGORY_COLORS[neuron.category]);
 
   return (
     <group position={[neuron.x || 0, neuron.y || 0, neuron.z || 0]}>
-      {/* Main sphere */}
       <mesh ref={meshRef} onClick={onClick}>
-        <sphereGeometry args={[radius, 20, 20]} />
+        <sphereGeometry args={[0.15, 16, 16]} />
         <meshStandardMaterial
-          color={visualColor}
-          emissive={visualColor}
-          emissiveIntensity={neuron.isShadow ? 0.05 : (isDimmed ? 0.02 : 0.2 + neuron.strength * 0.2)}
-          metalness={0.3}
-          roughness={0.4}
+          color={displayColor}
+          emissive={emissiveColor}
+          emissiveIntensity={emissiveIntensity}
+          metalness={isHighlighted ? 0.1 : 0.4}
+          roughness={isHighlighted ? 0.2 : 0.6}
         />
       </mesh>
-
-      {/* Mastery ring — thicker for sentences, dashed for grammar */}
-      {!isDimmed && !neuron.isShadow && (
-        <mesh ref={ringRef}>
-          <ringGeometry args={[radius + 0.08, radius + 0.15, isGrammar ? 4 : 32]} />
-          <meshBasicMaterial
-            color={ringColor}
-            transparent
-            opacity={0.28 + neuron.strength * 0.52}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
+      {/* Point light halo for highlighted nodes — bioluminescent bloom source */}
+      {isHighlighted && (
+        <pointLight
+          color={CATEGORY_COLORS[neuron.category]}
+          intensity={6}
+          distance={3.5}
+          decay={2}
+        />
       )}
-
-      {/* Kind indicator: inner dot for grammar, outer halo for sentence */}
-      {neuron.nodeKind === 'sentence' && !isDimmed && (
-        <mesh>
-          <ringGeometry args={[radius + 0.2, radius + 0.25, 32]} />
-          <meshBasicMaterial color={masteryColor} transparent opacity={0.2} side={THREE.DoubleSide} />
-        </mesh>
-      )}
-
-      {/* Glow light */}
-      {!isDimmed && !neuron.isShadow && (
-        <pointLight intensity={neuron.isNew ? 1.6 : (0.5 + neuron.strength * 0.9)} color={visualColor} distance={2.6} />
-      )}
-
-      {/* Label */}
       <Text
-        position={[0, radius + 0.35, 0]}
-        fontSize={compactMode ? 0.36 : 0.3}
-        color="#ffffff"
+        position={[0, 0.35, 0]}
+        fontSize={0.1}
+        color="white"
         anchorX="center"
         anchorY="middle"
-        maxWidth={4}
-        fillOpacity={neuron.isShadow ? 0.45 : (isDimmed ? 0.28 : Math.max(0.6, 0.6 + neuron.strength * 0.4))}
-        outlineWidth={0.015}
-        outlineColor="#000000"
+        maxWidth={2.5}
+        fillOpacity={neuron.isShadow ? 0.3 : isNew ? 0.04 : isHighlighted ? 1.0 : isStreamingActive ? 0.06 : effectiveDimmed ? 0.1 : 0.9}
       >
         {neuron.label}
       </Text>
@@ -189,21 +161,15 @@ function NeuronNode({ neuron, onClick, isDimmed, isFocused, compactMode }: {
   );
 }
 
-function SynapseLine({ synapse, neurons, isDimmed, onClick, compactMode }: {
-  synapse: Synapse;
-  neurons: Neuron[];
-  isDimmed: boolean;
-  onClick: () => void;
-  compactMode?: boolean;
+// ── Synapse line with flowing electric impulses ───────────────────────────
+function SynapseLine({ synapse, neurons, isDimmed, onClick, isCrossBatch, isStreamingActive }: {
+  synapse: Synapse; neurons: Neuron[]; isDimmed: boolean; onClick: () => void;
+  isCrossBatch?: boolean;      // connects a highlighted old node → new node → LIT UP
+  isStreamingActive?: boolean; // streaming in progress, and this is NOT a cross-batch line → dim
 }) {
   const source = neurons.find(n => n.id === synapse.source);
   const target = neurons.find(n => n.id === synapse.target);
   const lineRef = useRef<THREE.Mesh>(null);
-  const accentRef = useRef<THREE.Mesh>(null);
-  const signalRef = useRef<THREE.Mesh>(null);
-  const drawProgress = useRef(synapse.isNew ? 0 : 1);
-
-  const linkColor = LINK_COLORS[synapse.linkKind || 'semantic'];
 
   const points = useMemo(() => {
     if (!source || !target) return [];
@@ -211,213 +177,274 @@ function SynapseLine({ synapse, neurons, isDimmed, onClick, compactMode }: {
     const end = new THREE.Vector3(target.x || 0, target.y || 0, target.z || 0);
     const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
     const dist = start.distanceTo(end);
-    mid.y += dist * (compactMode ? 0.08 : 0.15);
+    mid.y += dist * 0.2;
+    mid.z += dist * 0.1;
     return [start, mid, end];
-  }, [source?.x, source?.y, source?.z, target?.x, target?.y, target?.z, compactMode]);
+  }, [source?.x, source?.y, source?.z, target?.x, target?.y, target?.z]);
 
   const curve = useMemo(() => {
     if (points.length < 3) return null;
     return new THREE.CatmullRomCurve3(points);
   }, [points]);
 
-  useFrame((state, delta) => {
-    if (drawProgress.current < 1) {
-      drawProgress.current = Math.min(1, drawProgress.current + delta * 2);
+  const spark1Ref = useRef<THREE.Mesh>(null);
+  const spark2Ref = useRef<THREE.Mesh>(null);
+  const spark3Ref = useRef<THREE.Mesh>(null);
+  const sparkRefs    = [spark1Ref, spark2Ref, spark3Ref];
+  const sparkOffsets = [0, 0.33, 0.66];
+  const impulseSpeed = useMemo(() => {
+    if (isCrossBatch) return (0.4 + synapse.strength * 0.6) * 2.5; // fast for cross-batch
+    return 0.4 + synapse.strength * 0.6;
+  }, [synapse.strength, isCrossBatch]);
+
+  useFrame((state) => {
+    const t = state.clock.getElapsedTime();
+
+    // Determine effective dimming
+    const effectiveDimmed = isDimmed || (isStreamingActive && !isCrossBatch);
+
+    // Original pulsing line opacity
+    if (lineRef.current && lineRef.current.material) {
+      const pulse = 0.4 + Math.sin(t * 3) * 0.3;
+      let opacity: number;
+      if (isDimmed) {
+        opacity = 0.02;
+      } else if (isCrossBatch) {
+        // Bright pulsing cross-batch synapse — the "new branch" lighting up
+        opacity = 0.7 + Math.sin(t * 10) * 0.3;
+      } else if (isStreamingActive) {
+        opacity = 0.015; // nearly invisible during streaming
+      } else {
+        opacity = synapse.strength * pulse;
+      }
+      (lineRef.current.material as THREE.MeshBasicMaterial).opacity = opacity;
     }
 
-    const dp = drawProgress.current;
-
-    if (lineRef.current?.material) {
-      const mat = lineRef.current.material as THREE.MeshBasicMaterial;
-      mat.opacity = (isDimmed ? 0.03 : 0.8) * dp;
-    }
-    if (accentRef.current?.material) {
-      const mat = accentRef.current.material as THREE.MeshBasicMaterial;
-      mat.opacity = (isDimmed ? 0.01 : 0.35) * dp;
-    }
-
-    if (signalRef.current && curve) {
-      const t = (state.clock.getElapsedTime() * 0.5) % 1;
-      const pos = curve.getPoint(t * dp);
-      signalRef.current.position.copy(pos);
-      const mat = signalRef.current.material as THREE.MeshBasicMaterial;
-      mat.opacity = dp * (0.5 + Math.sin(state.clock.getElapsedTime() * 4) * 0.3);
+    // Electric impulse sparks
+    if (!effectiveDimmed && curve) {
+      sparkRefs.forEach((ref, idx) => {
+        if (!ref.current) return;
+        const tp = ((t * impulseSpeed + sparkOffsets[idx]) % 1);
+        ref.current.position.copy(curve.getPoint(tp));
+        const brightness = Math.sin(tp * Math.PI);
+        const sparkOpacity = isCrossBatch
+          ? brightness * 1.0  // full bright for cross-batch sparks
+          : brightness * (0.5 + synapse.strength * 0.5);
+        (ref.current.material as THREE.MeshBasicMaterial).opacity = sparkOpacity;
+        const sparkScale = isCrossBatch
+          ? 0.8 + brightness * 2.5  // bigger sparks for cross-batch
+          : 0.5 + brightness * 1.5;
+        ref.current.scale.setScalar(sparkScale);
+      });
+    } else if (curve) {
+      // Hide sparks when dimmed
+      sparkRefs.forEach((ref) => {
+        if (ref.current) {
+          (ref.current.material as THREE.MeshBasicMaterial).opacity = 0;
+          ref.current.scale.setScalar(0);
+        }
+      });
     }
   });
 
-  if (!source || !target || !curve) return null;
+  if (!source || !target || points.length < 3 || !curve) return null;
+
+  const srcColor = CATEGORY_COLORS[source.category] || '#6b7280';
+  // Cross-batch synapses get thicker tubes for visual impact
+  const coreRadius = isCrossBatch ? 0.008 : 0.004;
+  const accentRadius = isCrossBatch ? 0.016 : 0.008;
+  const showSparks = !isDimmed && !(isStreamingActive && !isCrossBatch);
 
   return (
     <group onClick={(e) => { e.stopPropagation(); onClick(); }}>
-      {/* Core line — white bright */}
+      {/* Slim bright core line */}
       <mesh ref={lineRef}>
-        <tubeGeometry args={[curve, 32, 0.03, 8, false]} />
+        <tubeGeometry args={[curve, 20, coreRadius, 5, false]} />
         <meshBasicMaterial
-          color={linkColor}
+          color={isCrossBatch ? 0xffffff : 0xffffff}
           transparent
-          opacity={isDimmed ? 0.03 : 0.8}
+          opacity={isDimmed ? 0.02 : isStreamingActive && !isCrossBatch ? 0.015 : (synapse.strength * 0.85)}
+          fog={false}
           toneMapped={false}
         />
       </mesh>
 
-      {/* Wider colored accent */}
-      <mesh ref={accentRef}>
-        <tubeGeometry args={[curve, 32, 0.07, 8, false]} />
+      {/* Colored accent layer */}
+      <mesh>
+        <tubeGeometry args={[curve, 20, accentRadius, 5, false]} />
         <meshBasicMaterial
-          color={linkColor}
+          color={srcColor}
           transparent
-          opacity={isDimmed ? 0.01 : 0.35}
+          opacity={isDimmed ? 0.01 : isStreamingActive && !isCrossBatch ? 0.01 : isCrossBatch ? synapse.strength * 1.0 : (synapse.strength * 0.5)}
+          fog={false}
           toneMapped={false}
         />
       </mesh>
 
-      {/* Traveling signal particle */}
-      {!isDimmed && (
-        <mesh ref={signalRef}>
-          <sphereGeometry args={[0.06, 12, 12]} />
-          <meshBasicMaterial color={linkColor} transparent opacity={0.7} />
-          <pointLight intensity={2} color={linkColor} distance={2} />
-        </mesh>
+      {/* Point light aura for cross-batch "explosion" effect */}
+      {isCrossBatch && (
+        <pointLight color={srcColor} intensity={4} distance={2.5} decay={2} />
       )}
 
+      {/* Electric impulse sparks */}
+      {showSparks && sparkRefs.map((ref, i) => (
+        <mesh key={i} ref={ref}>
+          <sphereGeometry args={[isCrossBatch ? 0.035 : 0.02, 8, 8]} />
+          <meshBasicMaterial color={srcColor} transparent opacity={0.8} toneMapped={false} />
+          <pointLight color={srcColor} intensity={isCrossBatch ? 5 : 2} distance={isCrossBatch ? 2.0 : 1.2} />
+        </mesh>
+      ))}
     </group>
   );
 }
 
-function CameraController({ targetNode, isFlying, isFocused, newNodesCentroid, graphCenter, graphRadius, autoCameraEnabled }: {
-  targetNode: Neuron | null;
-  isFlying: boolean;
-  isFocused?: boolean;
-  newNodesCentroid: THREE.Vector3 | null;
-  graphCenter: THREE.Vector3 | null;
-  graphRadius: number;
-  autoCameraEnabled: boolean;
-}) {
+// ── Spaceship ─────────────────────────────────────────────────────────────
+function Spaceship({ position, target }: { position: THREE.Vector3; target: THREE.Vector3 }) {
+  const meshRef = useRef<THREE.Group>(null);
+  
+  useFrame((state) => {
+    if (meshRef.current) {
+      meshRef.current.position.copy(position);
+      meshRef.current.lookAt(target);
+      // Add a little hover/bobbing effect
+      meshRef.current.position.y += Math.sin(state.clock.getElapsedTime() * 2) * 0.1;
+      // Rotate slightly to face "up" relative to movement
+      meshRef.current.rotateX(Math.PI / 2);
+    }
+  });
+
+  return (
+    <group ref={meshRef}>
+      {/* Main Body - White Middle Section */}
+      <mesh position={[0, 0, 0]}>
+        <sphereGeometry args={[0.4, 32, 32]} />
+        <meshStandardMaterial color="#ffffff" roughness={0.3} />
+      </mesh>
+
+      {/* Top Section - Orange Cone */}
+      <mesh position={[0, 0.35, 0]}>
+        <coneGeometry args={[0.3, 0.6, 32]} />
+        <meshStandardMaterial color="#ff7e47" roughness={0.3} />
+      </mesh>
+      {/* Rounded tip for cone */}
+      <mesh position={[0, 0.65, 0]}>
+        <sphereGeometry args={[0.05, 16, 16]} />
+        <meshStandardMaterial color="#ff7e47" />
+      </mesh>
+
+      {/* Bottom Section - Orange Base */}
+      <mesh position={[0, -0.2, 0]}>
+        <sphereGeometry args={[0.4, 32, 32, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2]} />
+        <meshStandardMaterial color="#ff7e47" roughness={0.3} />
+      </mesh>
+
+      {/* Window Frame - Orange Torus */}
+      <mesh position={[0, 0.1, 0.35]} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.15, 0.04, 16, 32]} />
+        <meshStandardMaterial color="#ff7e47" />
+      </mesh>
+      {/* Window Glass - Blue Sphere */}
+      <mesh position={[0, 0.1, 0.33]}>
+        <sphereGeometry args={[0.14, 16, 16]} />
+        <meshStandardMaterial color="#1e3a8a" emissive="#1e3a8a" emissiveIntensity={0.5} transparent opacity={0.9} />
+      </mesh>
+
+      {/* Fins - Orange Rounded Boxes */}
+      {[0, Math.PI * 2 / 3, Math.PI * 4 / 3].map((angle, i) => (
+        <group key={i} rotation={[0, angle, 0]}>
+          <mesh position={[0.35, -0.3, 0]} rotation={[0, 0, -Math.PI / 6]}>
+            <boxGeometry args={[0.1, 0.4, 0.3]} />
+            <meshStandardMaterial color="#ff7e47" />
+          </mesh>
+        </group>
+      ))}
+
+      {/* Engine Nozzle - Grey Ribbed */}
+      <mesh position={[0, -0.5, 0]}>
+        <cylinderGeometry args={[0.15, 0.1, 0.2, 16]} />
+        <meshStandardMaterial color="#cccccc" roughness={0.8} />
+      </mesh>
+
+      {/* Engine Glow */}
+      <group position={[0, -0.7, 0]}>
+        <pointLight intensity={3} color="#ffaa00" distance={3} />
+        <mesh>
+          <sphereGeometry args={[0.15, 8, 8]} />
+          <meshBasicMaterial color="#ffaa00" transparent opacity={0.6} />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
+function CameraController({ targetNode, isFlying, isFocused, positionedNodes }: { targetNode: Neuron | null; isFlying: boolean; isFocused?: boolean; positionedNodes?: Neuron[] }) {
   const { camera, controls } = useThree() as any;
   const flightAngle = useRef(0);
   const [shipPos] = useState(() => new THREE.Vector3());
   const [shipTarget] = useState(() => new THREE.Vector3());
-  const autoFocusTimer = useRef(0);
+  const lastNodeCount = useRef(0);
+
+  // Auto-fit camera when node count changes (new data generated)
+  useEffect(() => {
+    if (!positionedNodes || positionedNodes.length === 0) return;
+    if (positionedNodes.length === lastNodeCount.current) return;
+    lastNodeCount.current = positionedNodes.length;
+
+    // Compute bounding sphere of all positioned nodes
+    const validNodes = positionedNodes.filter(n => n.x !== undefined && n.y !== undefined && n.z !== undefined);
+    if (validNodes.length === 0) return;
+    let maxR = 0;
+    for (const n of validNodes) {
+      const r = Math.sqrt((n.x ?? 0) ** 2 + (n.y ?? 0) ** 2 + (n.z ?? 0) ** 2);
+      if (r > maxR) maxR = r;
+    }
+    // Set camera Z so the whole cloud fits comfortably in view (fov=60)
+    const fitZ = Math.max(6, maxR / Math.tan((Math.PI / 180) * 30) + 2);
+    camera.position.set(0, 0, fitZ);
+    if (controls) controls.target.set(0, 0, 0);
+  }, [positionedNodes, camera, controls]);
 
   useFrame((state, delta) => {
-    // Auto-focus on new nodes
-    if (autoCameraEnabled && newNodesCentroid && !isFocused && !isFlying && !targetNode) {
-      autoFocusTimer.current += delta;
-      if (autoFocusTimer.current < 2) {
-        const targetPos = new THREE.Vector3(
-          newNodesCentroid.x,
-          newNodesCentroid.y,
-          newNodesCentroid.z + 5
-        );
-        camera.position.lerp(targetPos, 0.03);
-        if (controls) {
-          controls.target.lerp(newNodesCentroid, 0.03);
-        }
-      }
-    } else if (!newNodesCentroid) {
-      autoFocusTimer.current = 0;
-    }
-
     if (isFocused && targetNode && targetNode.x !== undefined) {
-      const targetPos = new THREE.Vector3(targetNode.x, targetNode.y, (targetNode.z || 0) + 4);
+      // When a node is focused, zoom in closer for better view
+      const targetPos = new THREE.Vector3(targetNode.x, targetNode.y, targetNode.z + 8);
       camera.position.lerp(targetPos, 0.08);
       if (controls) {
         controls.target.lerp(new THREE.Vector3(targetNode.x, targetNode.y, targetNode.z), 0.08);
       }
     } else if (targetNode && targetNode.x !== undefined) {
-      const targetPos = new THREE.Vector3(targetNode.x, targetNode.y, (targetNode.z || 0) + 3);
+      const targetPos = new THREE.Vector3(targetNode.x, targetNode.y, targetNode.z + 5);
       camera.position.lerp(targetPos, 0.05);
       if (controls) {
         controls.target.lerp(new THREE.Vector3(targetNode.x, targetNode.y, targetNode.z), 0.05);
       }
     } else if (isFlying) {
-      flightAngle.current += delta * 0.05;
-      const radius = 10;
+      // Interstellar flight logic: move camera in a large circle or path
+      flightAngle.current += delta * 0.05; // Slower, more majestic flight
+      const radius = 20;
       const x = Math.cos(flightAngle.current) * radius;
       const z = Math.sin(flightAngle.current) * radius;
-      const y = Math.sin(flightAngle.current * 0.5) * 4;
-      camera.position.lerp(new THREE.Vector3(x, y, z), 0.01);
+      const y = Math.sin(flightAngle.current * 0.5) * 8;
+      
+      const flightPos = new THREE.Vector3(x, y, z);
+      camera.position.lerp(flightPos, 0.01);
+      
+      // Update ship position to be slightly in front of camera
+      const shipOffset = new THREE.Vector3(0, -1.2, -4).applyQuaternion(camera.quaternion);
+      shipPos.copy(camera.position).add(shipOffset);
+      shipTarget.copy(camera.position).add(new THREE.Vector3(0, 0, -10).applyQuaternion(camera.quaternion));
+
       if (controls) {
         controls.target.lerp(new THREE.Vector3(0, 0, 0), 0.01);
       }
-    } else if (autoCameraEnabled && !targetNode && !isFocused && graphCenter) {
-      const desiredZ = Math.max(7, Math.min(18, graphRadius * 2.2 + 5));
-      const targetPos = new THREE.Vector3(graphCenter.x, graphCenter.y, graphCenter.z + desiredZ);
-      camera.position.lerp(targetPos, 0.03);
-      if (controls) {
-        controls.target.lerp(graphCenter, 0.04);
-      }
     }
   });
 
-  return null;
+  return isFlying ? <Spaceship position={shipPos} target={shipTarget} /> : null;
 }
 
-/** Legend overlay showing what colors mean */
-function GraphLegend() {
-  return (
-    <div className="absolute bottom-4 left-4 bg-black/50 backdrop-blur-md border border-white/10 rounded-xl p-3 text-[10px] text-white/70 space-y-2 z-10 pointer-events-none">
-      <div className="text-[9px] uppercase tracking-widest text-white/40 font-bold mb-1">Mastery</div>
-      <div className="flex items-center gap-2">
-        <div className="w-2.5 h-2.5 rounded-full bg-[#ef4444]" />
-        <span>New / Decaying</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <div className="w-2.5 h-2.5 rounded-full bg-[#f59e0b]" />
-        <span>Learning</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <div className="w-2.5 h-2.5 rounded-full bg-[#3557cf]" />
-        <span>Mastered</span>
-      </div>
-      <div className="border-t border-white/10 my-1.5" />
-      <div className="text-[9px] uppercase tracking-widest text-white/40 font-bold mb-1">Links</div>
-      <div className="flex items-center gap-2">
-        <div className="w-4 h-0.5 bg-[#3f63da] rounded" />
-        <span>Semantic</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <div className="w-4 h-0.5 bg-[#3b82f6] rounded" />
-        <span>Conjugation</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <div className="w-4 h-0.5 bg-[#a855f7] rounded" />
-        <span>Prerequisite</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <div className="w-4 h-0.5 bg-[#f97316] rounded" />
-        <span>Reactivation</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <div className="w-4 h-0.5 bg-[#eab308] rounded" />
-        <span>Mission</span>
-      </div>
-    </div>
-  );
-}
-
-/** Slowly rotating star field wrapper for sense of depth and motion */
-function RotatingStarField() {
-  const groupRef = useRef<THREE.Group>(null);
-  useFrame((_, delta) => {
-    if (groupRef.current) {
-      groupRef.current.rotation.y += delta * 0.012;
-      groupRef.current.rotation.x += delta * 0.004;
-    }
-  });
-  return (
-    <group ref={groupRef}>
-      <Stars radius={200} depth={120} count={16000} factor={3.5} saturation={0.15} fade speed={1.2} />
-      <Stars radius={150} depth={80} count={6000} factor={5.5} saturation={0.2} fade speed={1.8} />
-      <Stars radius={100} depth={40} count={2000} factor={8.0} saturation={0.1} fade speed={2.5} />
-    </group>
-  );
-}
-
-// ── Main Component ──────────────────────────────────────────────────────
-
-export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick, filterCategory, searchTarget, timePulse, shootingStars, onShootingStarComplete, isFlying, recenterNonce }: {
-  neurons: Neuron[];
+export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick, filterCategory, searchTarget, timePulse, shootingStars, onShootingStarComplete, isFlying, streamingNewIds = new Set(), highlightedIds = new Set() }: { 
+  neurons: Neuron[]; 
   synapses: Synapse[];
   onNeuronClick: (n: Neuron) => void;
   onSynapseClick: (s: Synapse) => void;
@@ -427,155 +454,28 @@ export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick,
   shootingStars: string[];
   onShootingStarComplete: (id: string) => void;
   isFlying: boolean;
-  recenterNonce?: number;
+  streamingNewIds?: Set<string>;  // neurons added this tick — shown grey
+  highlightedIds?: Set<string>;   // old neurons referenced by new synapses — shown bright
 }) {
+  // Use local state for positioned nodes to avoid prop mutation issues
   const [positionedNodes, setPositionedNodes] = useState<Neuron[]>([]);
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
-  const [autoCameraEnabled, setAutoCameraEnabled] = useState(true);
-  const previousPositionsRef = useRef<Map<string, { x: number; y: number; z: number }>>(new Map());
 
-  const normalizeLayoutSpread = (nodes: Neuron[]) => {
-    if (nodes.length === 0) return nodes;
-    const cx = nodes.reduce((s, n) => s + (n.x || 0), 0) / nodes.length;
-    const cy = nodes.reduce((s, n) => s + (n.y || 0), 0) / nodes.length;
-    const cz = nodes.reduce((s, n) => s + (n.z || 0), 0) / nodes.length;
-
-    let maxRadius = 0;
-    nodes.forEach((n) => {
-      const dx = (n.x || 0) - cx;
-      const dy = (n.y || 0) - cy;
-      const dz = (n.z || 0) - cz;
-      const r = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      maxRadius = Math.max(maxRadius, r);
-    });
-
-    const desiredRadius = nodes.length <= 8 ? 4 : (nodes.length <= 20 ? 6 : 9);
-    if (maxRadius < 0.0001) return nodes;
-
-    const scale = desiredRadius / maxRadius;
-    // Keep scale bounded so layout remains stable across turns
-    const boundedScale = Math.max(0.65, Math.min(1.35, scale));
-
-    nodes.forEach((n) => {
-      n.x = cx + ((n.x || 0) - cx) * boundedScale;
-      n.y = cy + ((n.y || 0) - cy) * boundedScale;
-      n.z = cz + ((n.z || 0) - cz) * boundedScale;
-    });
-
-    return nodes;
-  };
-
-  // Centroid of new nodes for camera auto-focus
-  const newNodesCentroid = useMemo(() => {
-    const newNodes = positionedNodes.filter(n => n.isNew);
-    if (newNodes.length === 0) return null;
-    const cx = newNodes.reduce((s, n) => s + (n.x || 0), 0) / newNodes.length;
-    const cy = newNodes.reduce((s, n) => s + (n.y || 0), 0) / newNodes.length;
-    const cz = newNodes.reduce((s, n) => s + (n.z || 0), 0) / newNodes.length;
-    return new THREE.Vector3(cx, cy, cz);
-  }, [positionedNodes]);
-
-  const graphCenter = useMemo(() => {
-    if (positionedNodes.length === 0) return null;
-    const cx = positionedNodes.reduce((s, n) => s + (n.x || 0), 0) / positionedNodes.length;
-    const cy = positionedNodes.reduce((s, n) => s + (n.y || 0), 0) / positionedNodes.length;
-    const cz = positionedNodes.reduce((s, n) => s + (n.z || 0), 0) / positionedNodes.length;
-    return new THREE.Vector3(cx, cy, cz);
-  }, [positionedNodes]);
-
-  const graphRadius = useMemo(() => {
-    if (!graphCenter || positionedNodes.length === 0) return 0;
-    let r = 0;
-    positionedNodes.forEach((n) => {
-      const dx = (n.x || 0) - graphCenter.x;
-      const dy = (n.y || 0) - graphCenter.y;
-      const dz = (n.z || 0) - graphCenter.z;
-      r = Math.max(r, Math.sqrt(dx * dx + dy * dy + dz * dz));
-    });
-    return r;
-  }, [positionedNodes, graphCenter]);
-  const compactMode = positionedNodes.length > 0 && positionedNodes.length <= 8;
-
-  const clusterByConnectedComponents = (nodes: Neuron[], links: Synapse[]) => {
-    if (nodes.length <= 2) return nodes;
-    const byId = new Map(nodes.map((n) => [n.id, n]));
-    const adj = new Map<string, string[]>();
-    nodes.forEach((n) => adj.set(n.id, []));
-    links.forEach((l) => {
-      if (!adj.has(l.source) || !adj.has(l.target)) return;
-      adj.get(l.source)!.push(l.target);
-      adj.get(l.target)!.push(l.source);
-    });
-
-    const visited = new Set<string>();
-    const components: string[][] = [];
-    for (const n of nodes) {
-      if (visited.has(n.id)) continue;
-      const queue = [n.id];
-      const comp: string[] = [];
-      visited.add(n.id);
-      while (queue.length) {
-        const cur = queue.shift()!;
-        comp.push(cur);
-        for (const nxt of adj.get(cur) || []) {
-          if (visited.has(nxt)) continue;
-          visited.add(nxt);
-          queue.push(nxt);
-        }
-      }
-      components.push(comp);
-    }
-    if (components.length <= 1) return nodes;
-
-      const ringRadius = components.length <= 4 ? 1.2 : (components.length <= 8 ? 1.8 : 2.6);
-    components.forEach((comp, i) => {
-      const angle = (i / components.length) * Math.PI * 2;
-      const targetCx = Math.cos(angle) * ringRadius;
-      const targetCy = Math.sin(angle) * ringRadius;
-
-      let cx = 0;
-      let cy = 0;
-      let cz = 0;
-      comp.forEach((id) => {
-        const n = byId.get(id)!;
-        cx += n.x || 0;
-        cy += n.y || 0;
-        cz += n.z || 0;
-      });
-      cx /= comp.length;
-      cy /= comp.length;
-      cz /= comp.length;
-
-      const shiftX = targetCx - cx;
-      const shiftY = targetCy - cy;
-      const shiftZ = -cz * 0.6;
-      comp.forEach((id) => {
-        const n = byId.get(id)!;
-        n.x = (n.x || 0) + shiftX;
-        n.y = (n.y || 0) + shiftY;
-        n.z = (n.z || 0) + shiftZ;
-      });
-    });
-
-    return nodes;
-  };
-
-  // Force simulation
   useEffect(() => {
+    // Clone to avoid mutating props
     const nodes = neurons.map(n => ({ ...n }));
-    const nodeIds = new Set(nodes.map(n => n.id));
-    const links = synapses
-      .filter(s => nodeIds.has(s.source) && nodeIds.has(s.target))
-      .map(s => ({ ...s }));
+    const links = synapses.map(s => ({ ...s }));
 
+    // If there's a focus node, use different positioning strategy
     if (focusNodeId) {
-      // Focused layout: selected node at center, connected around it
       const focusNode = nodes.find(n => n.id === focusNodeId);
       if (focusNode) {
+        // Place focus node at center
         focusNode.x = 0;
         focusNode.y = 0;
         focusNode.z = 0;
 
+        // Arrange connected nodes in circles around the focus node
         const connectedToFocus = new Set<string>();
         links.forEach(link => {
           if (link.source === focusNodeId) connectedToFocus.add(link.target as string);
@@ -586,185 +486,173 @@ export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick,
         const directConnected = otherNodes.filter(n => connectedToFocus.has(n.id));
         const indirectConnected = otherNodes.filter(n => !connectedToFocus.has(n.id));
 
+        // Place direct connections in inner circle (radius ~3)
         directConnected.forEach((node, i) => {
           const angle = (i / directConnected.length) * Math.PI * 2;
-          node.x = Math.cos(angle) * 3;
-          node.y = Math.sin(angle) * 3;
-          node.z = 0;
+          const radius = 3;
+          node.x = Math.cos(angle) * radius;
+          node.y = Math.sin(angle) * radius;
+          node.z = Math.cos(angle * 0.5) * radius * 0.3;
         });
 
+        // Place indirect connections in outer circle (radius ~6)
         indirectConnected.forEach((node, i) => {
-          const angle = (i / Math.max(1, indirectConnected.length)) * Math.PI * 2;
-          node.x = Math.cos(angle) * 5.5;
-          node.y = Math.sin(angle) * 5.5;
-          node.z = 0;
+          const angle = (i / indirectConnected.length) * Math.PI * 2;
+          const radius = 6;
+          node.x = Math.cos(angle) * radius;
+          node.y = Math.sin(angle) * radius;
+          node.z = Math.cos(angle * 0.5) * radius * 0.5;
         });
 
         setPositionedNodes(nodes);
       }
     } else {
-      // Standard force layout — preserve existing positions
-      const prevPos = previousPositionsRef.current;
-      const hasNewNodes = nodes.some(n => !prevPos.has(n.id));
+      // Normal force-directed simulation
+      const n = nodes.length;
+      const scale = Math.max(0.25, Math.min(1.0, 8 / Math.sqrt(n)));
+      const linkClose = 0.18 * scale;
+      const linkFar   = 0.35 * scale;
 
-      // Keep previous positions as starting points.
-      // Do not hard-pin when new nodes arrive (prevents spiral/snail layouts).
-      nodes.forEach(n => {
-        const prev = prevPos.get(n.id);
-        if (prev) {
-          n.x = prev.x;
-          n.y = prev.y;
-          n.z = prev.z;
-          if (!hasNewNodes) {
-            (n as any).fx = prev.x;
-            (n as any).fy = prev.y;
-            (n as any).fz = prev.z;
-          }
+      // ── Seed initial positions randomly in 3D so the simulation has
+      //    depth to work with — avoids collapsing to a flat plane ──────
+      const rng = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
+      for (const node of nodes) {
+        if (node.x === undefined) {
+          node.x = rng(-1, 1);
+          node.y = rng(-1, 1);
+          node.z = rng(-1, 1);
         }
+      }
+
+      // ── Category anchors: spread on a sphere using golden-ratio
+      //    latitude spacing so no two clusters share the same Z plane ───
+      const categories = [...new Set(nodes.map(d => d.category))];
+      const catCount = categories.length || 1;
+      const ringR = Math.max(0.5, 1.6 * scale);
+      const catAnchors: Record<string, { x: number; y: number; z: number }> = {};
+      categories.forEach((cat, idx) => {
+        // golden-angle spiral on a sphere → even 3D spread
+        const phi   = Math.acos(1 - 2 * (idx + 0.5) / catCount);   // polar [0,π]
+        const theta = Math.PI * (1 + Math.sqrt(5)) * idx;            // azimuth
+        catAnchors[cat] = {
+          x: ringR * Math.sin(phi) * Math.cos(theta),
+          y: ringR * Math.cos(phi),                   // full Y range — no flatten
+          z: ringR * Math.sin(phi) * Math.sin(theta),
+        };
       });
 
-      const smallGraph = nodes.length <= 8;
-      const linkDistance = smallGraph ? 2.1 : 3.8;
-      const chargeStrength = smallGraph ? -3.1 : -8.5;
-      const centerStrength = smallGraph ? 0.18 : 0.05;
-      const axisStrength = smallGraph ? 0.1 : 0.02;
-
-      const sim = forceSimulation<Neuron>(nodes)
-        .force('link', forceLink<Neuron, any>(links).id(d => d.id).distance(linkDistance).strength(0.55))
-        .force('charge', forceManyBody().strength(chargeStrength))
-        .force('center', forceCenter(0, 0, 0).strength(centerStrength))
-        .force('x', forceX(0).strength(axisStrength))
-        .force('y', forceY(0).strength(axisStrength))
-        .force('z', forceZ(0).strength(axisStrength))
-        .force('categoryX', forceX((d: any) => getCategoryAnchor(d.category as Category).x).strength(smallGraph ? 0.04 : 0.07))
-        .force('categoryY', forceY((d: any) => getCategoryAnchor(d.category as Category).y).strength(smallGraph ? 0.04 : 0.07))
-        .force('categoryZ', forceZ((d: any) => getCategoryAnchor(d.category as Category).z).strength(smallGraph ? 0.02 : 0.05))
+      const sim = forceSimulation<Neuron>(nodes, 3)
+        .force('link', forceLink<Neuron, any>(links).id(d => d.id).distance((link: any) => {
+          return link.type === 'logical' ? linkClose : linkFar;
+        }).strength(0.7))
+        // Moderate repulsion — separates nodes in 3D space
+        .force('charge', forceManyBody().strength(-1.5 * scale))
+        // Light center gravity — keeps cloud visible without collapsing depth
+        .force('center', forceCenter(0, 0, 0).strength(0.4))
+        // Category clustering — equal weight on all 3 axes → true 3D clusters
+        .force('catX', forceX<Neuron>(d => catAnchors[d.category]?.x ?? 0).strength(0.5))
+        .force('catY', forceY<Neuron>(d => {
+          const base = catAnchors[d.category]?.y ?? 0;
+          return base + (d.type === 'soma' ? 0.06 * scale : -0.06 * scale);
+        }).strength(0.5))
+        .force('catZ', forceZ<Neuron>(d => catAnchors[d.category]?.z ?? 0).strength(0.5))
         .stop();
 
-      const iterations = hasNewNodes ? 300 : 50;
-      for (let i = 0; i < iterations; i++) sim.tick();
-
-      // Unpin and save
-      nodes.forEach(n => {
-        delete (n as any).fx;
-        delete (n as any).fy;
-        delete (n as any).fz;
-      });
-
-      normalizeLayoutSpread(nodes);
-      clusterByConnectedComponents(nodes, links);
-      normalizeLayoutSpread(nodes);
-
-      const newPosMap = new Map<string, { x: number; y: number; z: number }>();
-      nodes.forEach(n => {
-        newPosMap.set(n.id, { x: n.x || 0, y: n.y || 0, z: n.z || 0 });
-      });
-      previousPositionsRef.current = newPosMap;
-
+      for (let i = 0; i < 500; i++) sim.tick();
       setPositionedNodes(nodes);
     }
-  }, [neurons, synapses, focusNodeId, recenterNonce]);
+  }, [neurons, synapses, focusNodeId]);
 
+  // Find the actual positioned node for searching
   const activeSearchTarget = useMemo(() => {
     if (!searchTarget) return null;
     return positionedNodes.find(n => n.id === searchTarget.id) || null;
   }, [searchTarget, positionedNodes]);
 
   const handleNeuronClick = (neuron: Neuron) => {
-    setFocusNodeId(focusNodeId === neuron.id ? null : neuron.id);
+    if (focusNodeId === neuron.id) {
+      setFocusNodeId(null);
+    } else {
+      setFocusNodeId(neuron.id);
+    }
     onNeuronClick(neuron);
   };
 
-  useEffect(() => {
-    if (!recenterNonce) return;
-    previousPositionsRef.current = new Map();
-    setFocusNodeId(null);
-    setAutoCameraEnabled(true);
-  }, [recenterNonce]);
-
   return (
-    <div
-      className="w-full h-full relative"
-      style={{
-        background:
-          'radial-gradient(circle at 50% 22%, #0c1228 0%, #060d1f 36%, #030714 66%, #010309 100%)',
-      }}
-    >
-      <div
-        className="absolute inset-0 pointer-events-none z-[1]"
-        style={{
-          background:
-            'radial-gradient(circle at 50% 42%, rgba(40,65,140,0.07) 0%, rgba(15,30,80,0.04) 28%, rgba(2,4,12,0.0) 72%)',
-        }}
-      />
-      <Canvas camera={{ position: [0, 0, 12], fov: 60 }}>
-        <color attach="background" args={['#020510']} />
-        <ambientLight intensity={0.28} />
-        <pointLight position={[10, 10, 10]} intensity={0.6} />
+    <div className="w-full h-full bg-black">
+      <Canvas camera={{ position: [0, 0, 20], fov: 60 }}>
+        <color attach="background" args={['#020205']} />
+        <ambientLight intensity={0.4} />
+        <pointLight position={[10, 10, 10]} intensity={1.5} />
 
-        <RotatingStarField />
+        <Stars radius={100} depth={50} count={10000} factor={4} saturation={0} fade speed={1} />
 
         <group>
-          {/* Render synapses FIRST (behind nodes) */}
-          {synapses
-            .filter(s => positionedNodes.some(n => n.id === s.source) && positionedNodes.some(n => n.id === s.target))
-            .map((s, i) => {
-              const source = positionedNodes.find(n => n.id === s.source);
-              const isDimmed = filterCategory !== 'all' && source?.category !== filterCategory;
-              return (
-                <SynapseLine
-                  key={`${s.source}-${s.target}-${i}`}
-                  synapse={s}
-                  neurons={positionedNodes}
-                  isDimmed={isDimmed}
-                  onClick={() => onSynapseClick(s)}
-                  compactMode={compactMode}
-                />
-              );
-            })}
-
-          {/* Render nodes */}
           {positionedNodes.map(n => {
-            const isDimmed = filterCategory !== 'all' && n.category !== filterCategory;
-            const isFocused = focusNodeId === n.id;
+            const decay    = Math.max(0, n.strength - timePulse);
+            const isDimmed = (filterCategory !== 'all' && n.category !== filterCategory)
+                          || (decay < 0.1 && !n.isShadow);
+            const isNew          = streamingNewIds.has(n.id);
+            const isHighlighted  = highlightedIds.has(n.id);
+            const isStreamingActive = streamingNewIds.size > 0;
             return (
               <NeuronNode
                 key={n.id}
                 neuron={n}
                 onClick={() => handleNeuronClick(n)}
                 isDimmed={isDimmed}
-                isFocused={isFocused}
-                compactMode={compactMode}
+                isFocused={focusNodeId === n.id}
+                isNew={isNew}
+                isHighlighted={isHighlighted}
+                isStreamingActive={isStreamingActive && !isNew && !isHighlighted}
               />
             );
           })}
+          {synapses.map((s, i) => {
+            const source = positionedNodes.find(n => n.id === s.source);
+            const filterDimmed = filterCategory !== 'all' && source?.category !== filterCategory;
+            const isStreamingActive = streamingNewIds.size > 0;
+            // Cross-batch: synapse connecting a highlighted old node ↔ a new node
+            const isCrossBatch = !filterDimmed && (
+              (highlightedIds.has(s.source) && streamingNewIds.has(s.target))
+              || (highlightedIds.has(s.target) && streamingNewIds.has(s.source))
+            );
+            // Dim the synapse if both endpoints are brand-new (internal new-batch link)
+            const bothNew = streamingNewIds.has(s.source) && streamingNewIds.has(s.target);
+            const synapseDimmed = filterDimmed || bothNew;
+            // Non-cross-batch synapses recede during streaming
+            const synapseStreamingActive = isStreamingActive && !isCrossBatch && !filterDimmed;
+            return (
+              <SynapseLine
+                key={`${s.source}-${s.target}-${i}`}
+                synapse={s}
+                neurons={positionedNodes}
+                isDimmed={synapseDimmed}
+                onClick={() => onSynapseClick(s)}
+                isCrossBatch={isCrossBatch}
+                isStreamingActive={synapseStreamingActive}
+              />
+            );
+          })}
+          {shootingStars.map(id => (
+            <ShootingStar key={id} onComplete={() => onShootingStarComplete(id)} />
+          ))}
         </group>
 
-        <CameraController
-          targetNode={activeSearchTarget}
-          isFlying={isFlying}
-          isFocused={focusNodeId !== null}
-          newNodesCentroid={newNodesCentroid}
-          graphCenter={graphCenter}
-          graphRadius={graphRadius}
-          autoCameraEnabled={autoCameraEnabled}
-        />
+        <CameraController targetNode={activeSearchTarget} isFlying={isFlying} isFocused={focusNodeId !== null} positionedNodes={positionedNodes} />
 
         <EffectComposer>
-          <Bloom luminanceThreshold={0.25} luminanceSmoothing={0.92} height={300} intensity={0.45} />
+          <Bloom luminanceThreshold={0.1} luminanceSmoothing={0.9} height={300} intensity={1.5} />
         </EffectComposer>
 
         <OrbitControls
           makeDefault
-          autoRotate={autoCameraEnabled && !activeSearchTarget && !isFlying && !focusNodeId && !newNodesCentroid}
-          autoRotateSpeed={0.2}
+          autoRotate={!activeSearchTarget && !isFlying && !focusNodeId}
+          autoRotateSpeed={0.3}
           enableDamping
           dampingFactor={0.05}
           enablePan={true}
           screenSpacePanning={true}
-          minDistance={1}
-          maxDistance={90}
-          onStart={() => setAutoCameraEnabled(false)}
         />
       </Canvas>
     </div>

@@ -58,11 +58,19 @@ _SYSTEM_PROMPT_BACKBOARD = (
     "RULES:\n"
     "- spoken_response: 1-2 natural French sentences + ONE open-ended question (never an instruction)\n"
     "- vocabulary_breakdown: array of objects with word, translation, part_of_speech\n"
-    "- graph_links: array of objects with source, target, type (semantic|conjugation|prerequisite)\n"
+    "- graph_links: array of objects with source, target, type (semantic|conjugation|prerequisite|derivation)\n"
+    "  IMPORTANT: Create 'derivation' links from the main sentence to each contextual extension.\n"
+    "  Example: source='Je m'appelle Marie', target='Marie', type='derivation'\n"
     "- Always try to reuse at least one fading unit from earlier turns in reactivated_elements\n"
-    "- user_vocabulary: MUST list words/phrases the USER said (never empty). Even 'Bonjour' becomes ['bonjour']\n"
-    "- Never output both a phrase and its split tokens in user_vocabulary\n"
-    "- Keep contractions intact: j'habite, je m'appelle, ca va\n"
+    "- user_vocabulary: Extract the USER's speech as SENTENCE STRUCTURES + CONTEXTUAL EXTENSIONS.\n"
+    "  1. The FIRST item must be the main sentence structure (the full phrase the user built).\n"
+    "     Examples: 'Je m'appelle Marie', 'J'habite a Paris', 'J'aime le chocolat'\n"
+    "  2. Following items are contextual extensions — meaningful sub-phrases or complements.\n"
+    "     Example: 'Je suis alle au parc avec mon ami' -> ['Je suis alle au parc avec mon ami', 'au parc', 'mon ami']\n"
+    "  3. NEVER split into individual isolated words. Smallest unit = meaningful phrase (2+ words) or proper noun.\n"
+    "     Bad: ['je', 'suis', 'alle', 'parc'] | Good: ['Je suis alle au parc', 'au parc']\n"
+    "  4. Single words OK only for: proper nouns (Marie, Paris), standalone greetings (Bonjour, Merci), key nouns.\n"
+    "  5. Keep the full sentence as-is — don't truncate or abstract into patterns.\n"
     "- corrections: array of objects with as_said, corrected, rule, severity\n"
     "- validated_user_units: array of objects with text, kind, source, confidence, is_accepted, reject_reason, canonical_key, mission_relevance\n"
     "- quality_score: float 0..1 based on grammatical quality and relevance\n"
@@ -96,12 +104,18 @@ _SYSTEM_PROMPT_OPENAI = (
     "RULES:\n"
     "- spoken_response: 1-2 natural French sentences + ONE open-ended question (never an instruction)\n"
     "- vocabulary_breakdown: array of {word, translation, part_of_speech}\n"
-    "- graph_links: array of {source, target, type} where type is semantic|conjugation|prerequisite\n"
+    "- graph_links: array of {source, target, type} where type is semantic|conjugation|prerequisite|derivation\n"
+    "  IMPORTANT: Create 'derivation' links from the main sentence to each contextual extension.\n"
+    "  Example: source='Je m'appelle Marie', target='Marie', type='derivation'\n"
     "- Always try to reuse at least one fading unit from earlier turns; include it in reactivated_elements\n"
-    "- user_vocabulary: MUST list words/phrases the USER said (never empty). Even 'Bonjour' -> ['bonjour']\n"
-    "- Never output both a phrase and its split tokens in user_vocabulary\n"
-    "  Bad: ['ca va', 'ca', 'va'] | Good: ['ca va']\n"
-    "- Keep contractions and chunks intact: \"j'habite\", \"je m'appelle\", \"ca va\"\n"
+    "- user_vocabulary: Extract the USER's speech as SENTENCE STRUCTURES + CONTEXTUAL EXTENSIONS.\n"
+    "  1. FIRST item = main sentence structure (full phrase the user built).\n"
+    "     Examples: 'Je m'appelle Marie', 'J'habite a Paris', 'J'aime le chocolat'\n"
+    "  2. Following items = contextual extensions (meaningful sub-phrases or complements).\n"
+    "     Example: 'Je suis alle au parc avec mon ami' -> ['Je suis alle au parc avec mon ami', 'au parc', 'mon ami']\n"
+    "  3. NEVER split into individual isolated words. Smallest unit = meaningful phrase or proper noun.\n"
+    "     Bad: ['je', 'suis', 'alle', 'parc'] | Good: ['Je suis alle au parc', 'au parc']\n"
+    "  4. Single words OK only for: proper nouns (Marie, Paris), standalone greetings (Bonjour, Merci), key nouns.\n"
     "- corrections: concise array of {as_said, corrected, rule, severity}\n"
     "- validated_user_units: array of {text, kind, source, confidence, is_accepted, reject_reason}\n"
     "- validated_user_units must include canonical_key and mission_relevance\n"
@@ -120,9 +134,9 @@ _SYSTEM_PROMPT_OPENAI = (
     '  "user_level_assessment": "A1",\n'
     '  "border_update": "Can greet. Next: introduce yourself.",\n'
     '  "mastery_scores": {"bonjour": 0.3},\n'
-    '  "graph_links": [{"source": "bonjour", "target": "comment", "type": "prerequisite"}],\n'
-    '  "user_vocabulary": ["bonjour"],\n'
-    '  "validated_user_units": [{"text":"bonjour","kind":"word","source":"as_said","confidence":0.95,"is_accepted":true,"reject_reason":null,"canonical_key":"bonjour","mission_relevance":0.8}],\n'
+    '  "graph_links": [{"source": "Bonjour, je m\'appelle Marie", "target": "Marie", "type": "derivation"}],\n'
+    '  "user_vocabulary": ["Bonjour, je m\'appelle Marie", "je m\'appelle", "Marie"],\n'
+    '  "validated_user_units": [{"text":"Bonjour, je m\'appelle Marie","kind":"sentence","source":"as_said","confidence":0.95,"is_accepted":true,"reject_reason":null,"canonical_key":"sentence:bonjour_je_mappelle_marie","mission_relevance":0.9},{"text":"Marie","kind":"word","source":"as_said","confidence":0.9,"is_accepted":true,"reject_reason":null,"canonical_key":"word:marie","mission_relevance":0.7}],\n'
     '  "corrections": [],\n'
     '  "quality_score": 0.82,\n'
     '  "latency_ms": {"stt": 0, "llm": 0, "total": 0},\n'
