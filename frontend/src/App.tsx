@@ -5,10 +5,14 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { Neuron, Synapse, NebulaState, Category, Message } from './types';
 import { analyzeInput, checkBackend, isUsingBackend, resetMockState, getMockTurnIndex, getTotalMockTurns } from './services/geminiService';
 import { onConnectionStatusChange, onStatusStep, onTTS, ConnectionStatus, hardResetSession } from './services/backendService';
-import { Send, Zap, Info, Loader2, Search, Filter, Mic, Clock, X, MessageSquare, User, Bot, ChevronDown, ChevronUp, Plane, RefreshCw, Wifi, WifiOff, CheckCircle2, Circle, Sparkles, LocateFixed, Trash2, Volume2, FlaskConical, BarChart2 } from 'lucide-react';
+import { Send, Zap, Info, Loader2, Search, Filter, Mic, Clock, X, MessageSquare, User, Bot, ChevronDown, ChevronUp, RefreshCw, Wifi, WifiOff, CheckCircle2, Circle, Sparkles, LocateFixed, Trash2, Volume2, FlaskConical, BarChart2, Rocket } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getDailyMissions, evaluateMissionTask as evalTask, MascotOverlay, loadDailyState, saveOnboarding, saveMissionProgress } from './missions';
 import type { MissionWithTasks, MascotOverlayProps } from './missions';
+import { useFlightModeMachine } from './components/navigation/useFlightModeMachine';
+import { FlightModeChoice } from './components/navigation/FlightModeChoice';
+import { StarcorePanel } from './components/navigation/StarcorePanel';
+import { StarcoreSessionView } from './components/navigation/StarcoreSessionView';
 
 const INITIAL_STATE: NebulaState = {
   neurons: [],
@@ -250,6 +254,7 @@ export default function App() {
   const [audioFailStreak, setAudioFailStreak] = useState(0);
   const [showChat, setShowChat] = useState(false);
   const [isFlying, setIsFlying] = useState(false);
+  const [isStarcoreSessionOpen, setIsStarcoreSessionOpen] = useState(false);
   const [showFilter, setShowFilter] = useState(true);
   const [showPulse, setShowPulse] = useState(true);
   const [expandedAnalysis, setExpandedAnalysis] = useState<string | null>(null);
@@ -298,11 +303,19 @@ export default function App() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const vadIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const silenceStartRef = useRef<number>(0);
+  const hasSpokenRef = useRef(false);
   const completedMissionRef = useRef<number | null>(null);
   const lastAiTextRef = useRef('');
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
   const ttsFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ttsPlaybackSettledRef = useRef(false);
+
+  // Flight mode machine — spaceship navigation through the knowledge nebula
+  const flightMachine = useFlightModeMachine(isFlying, state.neurons);
 
   const fadingTargets = useMemo(
     () =>
@@ -345,27 +358,7 @@ export default function App() {
       }
     };
 
-    const speakBrowser = (text: string) => {
-      if (!text || !('speechSynthesis' in window)) return;
-      try {
-        markSpoken();
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'fr-FR';
-        utterance.rate = 1.02;
-        utterance.pitch = 1.0;
-        utterance.volume = 1.0;
-        const voices = window.speechSynthesis.getVoices();
-        const frenchVoice =
-          voices.find((v) => (v.lang || '').toLowerCase().startsWith('fr')) ||
-          voices.find((v) => (v.lang || '').toLowerCase().includes('fr'));
-        if (frenchVoice) utterance.voice = frenchVoice;
-        window.speechSynthesis.speak(utterance);
-      } catch {
-        // no-op
-      }
-    };
-
+    // Real OpenAI audio — always preferred, cancels any browser speech
     if (tts.mode === 'audio' && tts.audio_base64) {
       try {
         if (activeAudioRef.current) {
@@ -377,26 +370,45 @@ export default function App() {
         const audio = new Audio(`data:${mime};base64,${tts.audio_base64}`);
         audio.preload = 'auto';
         audio.volume = 1;
-        if ('speechSynthesis' in window) {
-          window.speechSynthesis.cancel();
-        }
-        audio.onplay = () => markSpoken();
-        audio.onerror = () => speakBrowser(fallbackText);
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+        markSpoken();
         activeAudioRef.current = audio;
-        const playPromise = audio.play();
-        if (playPromise && typeof playPromise.then === 'function') {
-          playPromise.then(() => markSpoken()).catch(() => speakBrowser(fallbackText));
-        } else {
-          markSpoken();
-        }
+        audio.play().catch(() => {
+          // Audio playback failed — try browser fallback
+          if (fallbackText && 'speechSynthesis' in window) {
+            const u = new SpeechSynthesisUtterance(fallbackText);
+            u.lang = 'fr-FR'; u.rate = 1.02;
+            window.speechSynthesis.speak(u);
+          }
+        });
         return;
       } catch {
-        speakBrowser(fallbackText);
-        return;
+        // fall through to browser TTS
       }
     }
 
-    speakBrowser(fallbackText);
+    // Browser TTS — fast fallback. DON'T mark as settled so OpenAI audio
+    // can override when it arrives later (cancel browser speech + play audio).
+    if (fallbackText && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(fallbackText);
+        utterance.lang = 'fr-FR';
+        utterance.rate = 1.02;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+        const voices = window.speechSynthesis.getVoices();
+        const frenchVoice =
+          voices.find((v) => (v.lang || '').toLowerCase().startsWith('fr')) ||
+          voices.find((v) => (v.lang || '').toLowerCase().includes('fr'));
+        if (frenchVoice) utterance.voice = frenchVoice;
+        // Mark settled only when speech ends — allows OpenAI audio to override
+        utterance.onend = () => { if (!ttsPlaybackSettledRef.current) markSpoken(); };
+        window.speechSynthesis.speak(utterance);
+      } catch {
+        // no-op
+      }
+    }
   }, []);
 
   // ── Initialize: check backend availability ───────────────────────────
@@ -442,20 +454,8 @@ export default function App() {
   }, [state.messages]);
 
   useEffect(() => {
-    if (isFlying) {
-      setShowChat(true);
-      const dimmingNeurons = state.neurons.filter(n => !n.isShadow && n.strength < 0.4);
-      const suggestion = dimmingNeurons.length > 0
-        ? `Neural Navigator reporting for duty! I notice your memory of "${dimmingNeurons[0].label}" is dimming. Shall we fly there for a quick review?`
-        : "Neural Navigator online. All systems stable. Where shall we explore today?";
-
-      setState(prev => ({
-        ...prev,
-        messages: [
-          ...prev.messages,
-          { id: `nav-${Date.now()}`, role: 'ai', text: suggestion, timestamp: Date.now() }
-        ]
-      }));
+    if (!isFlying) {
+      setIsStarcoreSessionOpen(false);
     }
   }, [isFlying]);
 
@@ -649,6 +649,21 @@ export default function App() {
       if (lastUser && lastAi) {
         showHud(lastUser.text, lastAi.text, lastAi.correctedForm || '', lastAi.analysis || null);
       }
+      // Instant browser TTS — play voice the MOMENT text arrives, don't wait for OpenAI audio
+      if (lastAi?.text && !ttsPlaybackSettledRef.current && 'speechSynthesis' in window) {
+        try {
+          window.speechSynthesis.cancel();
+          const u = new SpeechSynthesisUtterance(lastAi.text);
+          u.lang = 'fr-FR';
+          u.rate = 1.05;
+          u.volume = 1.0;
+          const voices = window.speechSynthesis.getVoices();
+          const fr = voices.find((v) => (v.lang || '').toLowerCase().startsWith('fr'));
+          if (fr) u.voice = fr;
+          u.onend = () => { if (!ttsPlaybackSettledRef.current) ttsPlaybackSettledRef.current = true; };
+          window.speechSynthesis.speak(u);
+        } catch { /* no-op */ }
+      }
       const maybeErrorMsg = [...msgs].reverse().find(m => m.role === 'ai')?.text || '';
       const isAudioFailure = inputType === 'audio' && maybeErrorMsg.toLowerCase().startsWith('error:');
       if (isAudioFailure) {
@@ -724,11 +739,23 @@ export default function App() {
     window.speechSynthesis.speak(utterance);
   }, [lastAiText]);
 
-  // ── Voice recording ──────────────────────────────────────────────────
+  // ── Voice recording with VAD (auto-stop on silence) ─────────────────
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
+
+      // Set up VAD: AudioContext + AnalyserNode to detect silence
+      const audioCtx = new AudioContext();
+      audioContextRef.current = audioCtx;
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.3;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+      silenceStartRef.current = 0;
+      hasSpokenRef.current = false;
 
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
@@ -743,6 +770,10 @@ export default function App() {
       };
 
       mediaRecorder.onstop = async () => {
+        // Clean up VAD
+        if (vadIntervalRef.current) { clearInterval(vadIntervalRef.current); vadIntervalRef.current = null; }
+        if (audioContextRef.current) { audioContextRef.current.close(); audioContextRef.current = null; }
+
         if (streamRef.current) {
           streamRef.current.getTracks().forEach((t) => t.stop());
           streamRef.current = null;
@@ -764,6 +795,32 @@ export default function App() {
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start(100);
       setIsListening(true);
+
+      // VAD: check audio level every 100ms, auto-stop after 1.5s of silence
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const SILENCE_THRESHOLD = 15;  // audio level below this = silence
+      const SILENCE_DURATION = 500;  // ms of silence before auto-stop
+
+      vadIntervalRef.current = setInterval(() => {
+        if (!analyserRef.current) return;
+        analyserRef.current.getByteFrequencyData(dataArray);
+        const avg = dataArray.reduce((sum, v) => sum + v, 0) / dataArray.length;
+
+        if (avg > SILENCE_THRESHOLD) {
+          // User is speaking
+          hasSpokenRef.current = true;
+          silenceStartRef.current = 0;
+        } else if (hasSpokenRef.current) {
+          // Silence after speech
+          if (silenceStartRef.current === 0) {
+            silenceStartRef.current = Date.now();
+          } else if (Date.now() - silenceStartRef.current > SILENCE_DURATION) {
+            // 1.5s of silence after speech → auto-stop
+            stopRecording();
+          }
+        }
+      }, 100);
+
     } catch {
       if (isDemoMode) {
         handleSend('[mock-advance]');
@@ -772,6 +829,7 @@ export default function App() {
   };
 
   const stopRecording = () => {
+    if (vadIntervalRef.current) { clearInterval(vadIntervalRef.current); vadIntervalRef.current = null; }
     if (mediaRecorderRef.current?.state === 'recording') {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current = null;
@@ -919,6 +977,11 @@ export default function App() {
           shootingStars={shootingStars}
           onShootingStarComplete={handleShootingStarComplete}
           isFlying={isFlying}
+          flightPhase={flightMachine.phase}
+          flightBranch={flightMachine.branch}
+          relightTargetId={flightMachine.decayingNeuron?.id ?? null}
+          onTravelArrive={flightMachine.notifyTravelArrived}
+          onFocusComplete={flightMachine.notifyFocusComplete}
         />
       </ErrorBoundary>
       {canvasFailed && (
@@ -952,6 +1015,95 @@ export default function App() {
             </div>
           )}
         </div>
+      )}
+
+      {/* ── Flight Mode UI Overlays ─────────────────────────────── */}
+      {isFlying && (
+        <>
+          {/* Flight status bar */}
+          <AnimatePresence>
+            {flightMachine.phase !== 'hidden' && (
+              <motion.div
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="absolute top-4 left-1/2 -translate-x-1/2 z-[80] pointer-events-none"
+              >
+                <div className="px-5 py-2 rounded-full bg-slate-950/70 backdrop-blur-xl border border-cyan-300/20 shadow-[0_0_24px_rgba(56,189,248,0.16)]">
+                  <div className="flex items-center gap-3 text-cyan-100 text-xs">
+                    <Rocket size={14} className={flightMachine.phase === 'relightTravel' || flightMachine.phase === 'exploreTravel' ? 'animate-pulse' : ''} />
+                    <span className="font-semibold uppercase tracking-wider">
+                      {flightMachine.phase === 'appear' || flightMachine.phase === 'idle' ? 'Ship Online — Choose your mission' :
+                       flightMachine.phase === 'choose' ? 'Awaiting flight orders' :
+                       flightMachine.phase === 'relightTravel' ? 'Navigating to fading memory...' :
+                       flightMachine.phase === 'exploreTravel' ? 'Charting new territory...' :
+                       flightMachine.phase === 'focus' ? 'Approaching target zone...' :
+                       flightMachine.phase === 'starcoreOpen' ? (flightMachine.branch === 'relight' ? 'Memory Recalibration Ready' : 'Frontier Synthesis Ready') :
+                       'Navigation Active'}
+                    </span>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Flight mode choice (Explore / Relight) — centered bottom */}
+          <div className="absolute bottom-32 left-1/2 -translate-x-1/2 z-[80]">
+            <FlightModeChoice
+              visible={flightMachine.phase === 'choose'}
+              onExplore={() => flightMachine.chooseBranch('explore')}
+              onRelight={() => flightMachine.chooseBranch('relight')}
+            />
+          </div>
+
+          {/* Starcore side panel — right side */}
+          <AnimatePresence>
+            {flightMachine.phase === 'starcoreOpen' && !isStarcoreSessionOpen && (
+              <motion.div
+                initial={{ x: 400, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: 400, opacity: 0 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                className="absolute top-20 right-6 bottom-32 z-[80] w-[340px] pointer-events-auto"
+              >
+                <StarcorePanel
+                  branch={flightMachine.branch}
+                  targetLabel={flightMachine.decayingNeuron?.label}
+                  onOpenSession={() => setIsStarcoreSessionOpen(true)}
+                />
+                <button
+                  onClick={() => { flightMachine.returnToIdle(); setIsStarcoreSessionOpen(false); }}
+                  className="mt-3 w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-white/60 transition hover:bg-white/10 hover:text-white/80"
+                >
+                  Return to Nebula
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Starcore session view — full right panel */}
+          <AnimatePresence>
+            {isStarcoreSessionOpen && (
+              <motion.div
+                initial={{ x: 400, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: 400, opacity: 0 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                className="absolute top-4 right-6 bottom-32 z-[80] w-[380px] pointer-events-auto rounded-2xl border border-cyan-300/20 bg-slate-950/80 backdrop-blur-2xl shadow-[0_20px_60px_rgba(14,116,144,0.35)] overflow-hidden"
+              >
+                <StarcoreSessionView
+                  branch={flightMachine.branch}
+                  targetLabel={flightMachine.decayingNeuron?.label}
+                  onBack={() => setIsStarcoreSessionOpen(false)}
+                  onSessionComplete={() => {
+                    setIsStarcoreSessionOpen(false);
+                    flightMachine.returnToIdle();
+                  }}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </>
       )}
 
       {/* UI Overlay */}
@@ -1106,12 +1258,12 @@ export default function App() {
                   onClick={() => setIsFlying(!isFlying)}
                   className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all ${
                     isFlying
-                      ? 'bg-blue-600 border-blue-600 text-white shadow-[0_0_20px_rgba(59,130,246,0.5)]'
+                      ? 'bg-cyan-600 border-cyan-500 text-white shadow-[0_0_20px_rgba(6,182,212,0.5)]'
                       : 'bg-white/[0.08] border-white/[0.14] text-white/50 hover:bg-white/[0.14] hover:text-white/70'
                   }`}
-                  title="Navigation"
+                  title={isFlying ? 'Dock Ship' : 'Launch Ship — Explore or review your knowledge nebula'}
                 >
-                  <Plane size={18} className={isFlying ? 'animate-bounce' : ''} />
+                  <Rocket size={18} className={isFlying ? 'animate-pulse' : ''} />
                 </button>
                 <button
                   onClick={() => setShowChat(!showChat)}
@@ -1235,8 +1387,8 @@ export default function App() {
         </motion.div>
 
         {/* ── Central Voice HUD (bottom center) ─────────────────────── */}
-        <div className="flex justify-center items-end pointer-events-auto max-h-[60vh] overflow-hidden">
-          <div className="flex flex-col items-center gap-3 max-w-xl w-full">
+        <div className="flex justify-center items-end pointer-events-auto max-h-[85vh] overflow-visible">
+          <div className="flex flex-col items-center gap-2 max-w-2xl w-full">
 
             {/* Transcript area */}
             <AnimatePresence>
@@ -1246,7 +1398,7 @@ export default function App() {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 10, scale: 0.95 }}
                   transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                  className="w-full bg-white/[0.07] backdrop-blur-xl border border-white/[0.14] rounded-2xl p-4 shadow-[0_18px_38px_rgba(0,0,0,0.35)] max-h-[35vh] overflow-y-auto"
+                  className="w-full bg-white/[0.07] backdrop-blur-xl border border-white/[0.14] rounded-2xl p-4 shadow-[0_18px_38px_rgba(0,0,0,0.35)] max-h-[28vh] overflow-y-auto"
                 >
                   {/* User text */}
                   {lastUserText && (
@@ -1558,11 +1710,11 @@ export default function App() {
             <div className="p-6 border-b border-white/10 flex justify-between items-center">
               <div className="flex items-center gap-3">
                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${
-                  isFlying ? 'bg-blue-500/20 border-blue-500/30' : 'bg-blue-500/20 border-blue-500/30'
+                  isFlying ? 'bg-cyan-500/20 border-cyan-500/30' : 'bg-blue-500/20 border-blue-500/30'
                 }`}>
-                  {isFlying ? <Plane className="text-blue-400" size={18} /> : <MessageSquare className="text-blue-400" size={18} />}
+                  {isFlying ? <Rocket className="text-cyan-400" size={18} /> : <MessageSquare className="text-blue-400" size={18} />}
                 </div>
-                <h2 className="font-bold text-lg">{isFlying ? 'Neural Navigator' : 'History'}</h2>
+                <h2 className="font-bold text-lg">{isFlying ? 'Ship Log' : 'History'}</h2>
               </div>
               <button
                 onClick={() => setShowChat(false)}
@@ -1585,7 +1737,7 @@ export default function App() {
                     msg.id.startsWith('nav-') ? 'bg-blue-500/20 border-blue-500/30' : 'bg-white/10 border-white/10'
                   }`}>
                     {msg.role === 'user' ? <User size={16} className="text-blue-400" /> :
-                     msg.id.startsWith('nav-') ? <Plane size={16} className="text-blue-400" /> : <Bot size={16} className="text-white/60" />}
+                     msg.id.startsWith('nav-') ? <Rocket size={16} className="text-cyan-400" /> : <Bot size={16} className="text-white/60" />}
                   </div>
                   <div className={`max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed ${
                     msg.role === 'user'

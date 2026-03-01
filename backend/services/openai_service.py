@@ -38,112 +38,35 @@ _FALLBACK_RESPONSE = {
     "mission_progress": {"done": 0, "total": 3, "percent": 0},
 }
 
-# System prompt without curly brace JSON examples (Backboard uses LangChain templates)
-_SYSTEM_PROMPT_BACKBOARD = (
-    "You are a warm French tutor applying Krashen's i+1 hypothesis. Return ONLY valid JSON (no markdown fences, no explanation text).\n\n"
-    "*** KRASHEN'S i+1 — CORE PRINCIPLE ***\n"
-    "The learner acquires language through COMPREHENSIBLE INPUT slightly above their level.\n"
-    "- NEVER drill or instruct ('now say X', 'try saying Y', 'repeat after me')\n"
-    "- Instead, have a GENUINE conversation. React to what they said with interest.\n"
-    "- Your response IS the i+1: use structures ONE step above their current level\n"
-    "- Model correct French naturally — if they make errors, recast correctly in your reply\n"
-    "  (e.g., they say 'je suis habite Paris' → you say 'Ah, tu habites à Paris ! Moi aussi j'aime Paris.')\n"
-    "- End with a natural open question that invites them to keep talking\n\n"
-    "*** CONVERSATION CONTEXT (passive — do NOT mention these to the learner) ***\n"
-    "A thematic context may be provided with each message (e.g., 'talking about yourself').\n"
-    "- Use it to shape the TOPIC of your questions, not to give instructions\n"
-    "- Create situations where the learner might naturally produce relevant language\n"
-    "- Example: context is 'say your name' → ask 'Comment tu t'appelles ?' NOT 'Dis ton nom'\n"
-    "- If the learner goes off-topic, follow THEIR lead — acquisition > task completion\n\n"
-    "RULES:\n"
-    "- spoken_response: 1-2 natural French sentences + ONE open-ended question (never an instruction)\n"
-    "- vocabulary_breakdown: array of objects with word, translation, part_of_speech\n"
-    "- graph_links: array of objects with source, target, type (semantic|conjugation|prerequisite|derivation)\n"
-    "  IMPORTANT: Create 'derivation' links from the main sentence to each contextual extension.\n"
-    "  Example: source='Je m'appelle Marie', target='Marie', type='derivation'\n"
-    "- Always try to reuse at least one fading unit from earlier turns in reactivated_elements\n"
-    "- user_vocabulary: Extract the USER's speech as SENTENCE STRUCTURES + CONTEXTUAL EXTENSIONS.\n"
-    "  1. The FIRST item must be the main sentence structure (the full phrase the user built).\n"
-    "     Examples: 'Je m'appelle Marie', 'J'habite a Paris', 'J'aime le chocolat'\n"
-    "  2. Following items are contextual extensions — meaningful sub-phrases or complements.\n"
-    "     Example: 'Je suis alle au parc avec mon ami' -> ['Je suis alle au parc avec mon ami', 'au parc', 'mon ami']\n"
-    "  3. NEVER split into individual isolated words. Smallest unit = meaningful phrase (2+ words) or proper noun.\n"
-    "     Bad: ['je', 'suis', 'alle', 'parc'] | Good: ['Je suis alle au parc', 'au parc']\n"
-    "  4. Single words OK only for: proper nouns (Marie, Paris), standalone greetings (Bonjour, Merci), key nouns.\n"
-    "  5. Keep the full sentence as-is — don't truncate or abstract into patterns.\n"
-    "- corrections: array of objects with as_said, corrected, rule, severity\n"
-    "- validated_user_units: array of objects with text, kind, source, confidence, is_accepted, reject_reason, canonical_key, mission_relevance\n"
-    "- quality_score: float 0..1 based on grammatical quality and relevance\n"
-    "- next_mission_hint: one short concrete speaking objective (A1-A2)\n"
-    "- mission_progress: object with done, total, percent\n"
-    "- mastery_scores: cumulative dict, never drop old words\n"
-    "- corrected_form: empty string if no errors, corrected sentence if errors\n"
-    "- translation_hint: English translation of spoken_response\n"
-    "- new_elements: new French words/phrases introduced this turn\n"
-    "- user_level_assessment: CEFR level (A1, A1+, A2)\n"
-    "- border_update: what the learner can now do\n"
+# Lean system prompt — spoken_response MUST be FIRST key for fast mid-stream extraction.
+# Fields computed server-side are excluded to reduce token output (~40% faster).
+_SYSTEM_PROMPT_LEAN = (
+    "You are a warm French tutor (Krashen i+1). Return ONLY valid JSON.\n"
+    "NEVER drill/instruct. Have a GENUINE conversation. React with interest.\n"
+    "Model correct French naturally. End with ONE open question.\n"
+    "If context provided, shape topics naturally — never mention themes to learner.\n\n"
+    "JSON keys (spoken_response MUST be FIRST):\n"
+    "- spoken_response: 1-2 French sentences + 1 question (short!)\n"
+    "- translation_hint: English translation\n"
+    "- corrected_form: corrected sentence or empty\n"
+    "- user_vocabulary: [full sentence, sub-phrase1, ...] NEVER individual words\n"
+    "  E.g. ['Je suis allé au parc', 'au parc']\n"
+    "- vocabulary_breakdown: [{word, translation, part_of_speech}]\n"
+    "- graph_links: [{source, target, type}] derivation from sentence→extension\n"
+    "- new_elements, reactivated_elements: string arrays\n"
+    "- mastery_scores: cumulative dict\n"
+    "- user_level_assessment: A1/A1+/A2\n"
+    "- border_update: what learner can now do\n"
+    "Skip: validated_user_units, quality_score, latency_ms, mission_progress, next_mission_hint, corrections.\n\n"
+    'EXAMPLE: {"spoken_response":"Bonjour ! Comment tu t\'appelles ?","translation_hint":"Hello! What is your name?",'
+    '"corrected_form":"","user_vocabulary":["Bonjour"],"vocabulary_breakdown":[{"word":"comment","translation":"how","part_of_speech":"adverb"}],'
+    '"graph_links":[],"new_elements":["comment"],"reactivated_elements":["bonjour"],'
+    '"mastery_scores":{"bonjour":0.3},"user_level_assessment":"A1","border_update":"Can greet."}'
 )
 
-# System prompt with JSON example for OpenAI (supports json_object mode)
-_SYSTEM_PROMPT_OPENAI = (
-    "You are a warm French tutor applying Krashen's i+1 hypothesis. Return ONLY valid JSON.\n\n"
-    "*** KRASHEN'S i+1 — CORE PRINCIPLE ***\n"
-    "The learner acquires language through COMPREHENSIBLE INPUT slightly above their level.\n"
-    "- NEVER drill or instruct ('now say X', 'try saying Y', 'repeat after me')\n"
-    "- Instead, have a GENUINE conversation. React to what they said with interest.\n"
-    "- Your response IS the i+1: use structures ONE step above their current level\n"
-    "- Model correct French naturally — if they make errors, recast correctly in your reply\n"
-    "  (e.g., they say 'je suis habite Paris' → you say 'Ah, tu habites à Paris ! Moi aussi j'aime Paris.')\n"
-    "- End with a natural open question that invites them to keep talking\n\n"
-    "*** CONVERSATION CONTEXT (passive — do NOT mention these to the learner) ***\n"
-    "A thematic context may be provided with each message (e.g., 'talking about yourself').\n"
-    "- Use it to shape the TOPIC of your questions, not to give instructions\n"
-    "- Create situations where the learner might naturally produce relevant language\n"
-    "- Example: context is 'say your name' → ask 'Comment tu t'appelles ?' NOT 'Dis ton nom'\n"
-    "- If the learner goes off-topic, follow THEIR lead — acquisition > task completion\n\n"
-    "RULES:\n"
-    "- spoken_response: 1-2 natural French sentences + ONE open-ended question (never an instruction)\n"
-    "- vocabulary_breakdown: array of {word, translation, part_of_speech}\n"
-    "- graph_links: array of {source, target, type} where type is semantic|conjugation|prerequisite|derivation\n"
-    "  IMPORTANT: Create 'derivation' links from the main sentence to each contextual extension.\n"
-    "  Example: source='Je m'appelle Marie', target='Marie', type='derivation'\n"
-    "- Always try to reuse at least one fading unit from earlier turns; include it in reactivated_elements\n"
-    "- user_vocabulary: Extract the USER's speech as SENTENCE STRUCTURES + CONTEXTUAL EXTENSIONS.\n"
-    "  1. FIRST item = main sentence structure (full phrase the user built).\n"
-    "     Examples: 'Je m'appelle Marie', 'J'habite a Paris', 'J'aime le chocolat'\n"
-    "  2. Following items = contextual extensions (meaningful sub-phrases or complements).\n"
-    "     Example: 'Je suis alle au parc avec mon ami' -> ['Je suis alle au parc avec mon ami', 'au parc', 'mon ami']\n"
-    "  3. NEVER split into individual isolated words. Smallest unit = meaningful phrase or proper noun.\n"
-    "     Bad: ['je', 'suis', 'alle', 'parc'] | Good: ['Je suis alle au parc', 'au parc']\n"
-    "  4. Single words OK only for: proper nouns (Marie, Paris), standalone greetings (Bonjour, Merci), key nouns.\n"
-    "- corrections: concise array of {as_said, corrected, rule, severity}\n"
-    "- validated_user_units: array of {text, kind, source, confidence, is_accepted, reject_reason}\n"
-    "- validated_user_units must include canonical_key and mission_relevance\n"
-    "- quality_score: float 0..1 based on grammatical quality and relevance\n"
-    "- next_mission_hint: one short concrete speaking objective (A1-A2) like food, today, hobbies, work, travel\n"
-    "- mission_progress: object {done,total,percent}\n"
-    "- mastery_scores: cumulative dict, never drop old words\n\n"
-    "EXAMPLE JSON:\n"
-    "{\n"
-    '  "spoken_response": "Bonjour ! Comment tu t\'appelles ?",\n'
-    '  "translation_hint": "Hello! What is your name?",\n'
-    '  "corrected_form": "",\n'
-    '  "vocabulary_breakdown": [{"word": "comment", "translation": "how", "part_of_speech": "adverb"}],\n'
-    '  "new_elements": ["comment", "tu t\'appelles"],\n'
-    '  "reactivated_elements": ["bonjour"],\n'
-    '  "user_level_assessment": "A1",\n'
-    '  "border_update": "Can greet. Next: introduce yourself.",\n'
-    '  "mastery_scores": {"bonjour": 0.3},\n'
-    '  "graph_links": [{"source": "Bonjour, je m\'appelle Marie", "target": "Marie", "type": "derivation"}],\n'
-    '  "user_vocabulary": ["Bonjour, je m\'appelle Marie", "je m\'appelle", "Marie"],\n'
-    '  "validated_user_units": [{"text":"Bonjour, je m\'appelle Marie","kind":"sentence","source":"as_said","confidence":0.95,"is_accepted":true,"reject_reason":null,"canonical_key":"sentence:bonjour_je_mappelle_marie","mission_relevance":0.9},{"text":"Marie","kind":"word","source":"as_said","confidence":0.9,"is_accepted":true,"reject_reason":null,"canonical_key":"word:marie","mission_relevance":0.7}],\n'
-    '  "corrections": [],\n'
-    '  "quality_score": 0.82,\n'
-    '  "latency_ms": {"stt": 0, "llm": 0, "total": 0},\n'
-    '  "next_mission_hint": "Introduce yourself in two short sentences.",\n'
-    '  "mission_progress": {"done": 1, "total": 3, "percent": 33}\n'
-    "}"
-)
+# Keep old prompts as aliases for backward compat
+_SYSTEM_PROMPT_BACKBOARD = _SYSTEM_PROMPT_LEAN
+_SYSTEM_PROMPT_OPENAI = _SYSTEM_PROMPT_LEAN
 
 
 def _norm_key(text: str) -> str:
@@ -247,23 +170,42 @@ def _sanitize_parsed(parsed: dict) -> dict:
         parsed["validated_user_units"] = sanitized_vu
     corr = parsed.get("corrections", [])
     if isinstance(corr, list):
-        parsed["corrections"] = [item for item in corr if isinstance(item, dict)]
+        sanitized_corr = []
+        for item in corr:
+            if not isinstance(item, dict):
+                continue
+            # Coerce severity to string (LLM sometimes returns int)
+            sev = item.get("severity", "minor")
+            if not isinstance(sev, str):
+                item["severity"] = "major" if sev else "minor"
+            for field in ("as_said", "corrected", "rule"):
+                if field not in item:
+                    item[field] = ""
+                elif not isinstance(item[field], str):
+                    item[field] = str(item[field])
+            sanitized_corr.append(item)
+        parsed["corrections"] = sanitized_corr
     # Coerce quality_score
     parsed["quality_score"] = _coerce_float(parsed.get("quality_score"), 0.55)
     return parsed
 
 
 class OpenAIService:
-    """AI tutor service using Backboard.io (primary) and OpenAI (fallback)."""
+    """AI tutor service using Groq (fastest), Backboard.io, and OpenAI (fallback)."""
+
+    # Keep only last N conversation turns to reduce prompt size
+    MAX_HISTORY_TURNS = 8  # 4 user + 4 assistant
 
     def __init__(self):
         self.mock_mode = MOCK_MODE
         self._backboard_client = None
         self._backboard_assistant_id = None
         self._backboard_thread_id = None
+        self._groq_client = None
         if not self.mock_mode:
             self._init_real_client()
             self._init_backboard_client()
+            self._init_groq_client()
 
     def reset(self):
         """Clear conversation history for a fresh session."""
@@ -287,6 +229,22 @@ class OpenAIService:
         except Exception as exc:
             logger.warning("Backboard init failed: %s", exc)
 
+    def _init_groq_client(self):
+        """Initialize Groq client for ultra-fast LLM inference (LPU hardware)."""
+        try:
+            from groq import AsyncGroq
+            api_key = os.getenv("GROQ_API_KEY", "")
+            if api_key:
+                self._groq_client = AsyncGroq(api_key=api_key)
+                self._groq_model = "llama-3.3-70b-versatile"
+                logger.info("Groq client initialized (fastest LLM — %s)", self._groq_model)
+            else:
+                logger.warning("No GROQ_API_KEY — Groq LLM disabled")
+        except ImportError:
+            logger.warning("groq package not installed — Groq LLM disabled")
+        except Exception as exc:
+            logger.warning("Groq init failed: %s", exc)
+
     def _init_real_client(self):
         """Initialize AsyncOpenAI client for fallback GPT calls."""
         from openai import AsyncOpenAI
@@ -300,6 +258,10 @@ class OpenAIService:
         self._model = "gpt-4o-mini"
         self._conversation_history: list[dict] = []
 
+    def _trimmed_history(self) -> list[dict]:
+        """Return only the last N messages to keep prompts fast."""
+        return self._conversation_history[-self.MAX_HISTORY_TURNS:]
+
     async def generate_response(
         self, user_text: str, turn_number: int, mission_context: str = ""
     ) -> dict:
@@ -307,6 +269,31 @@ class OpenAIService:
         if self.mock_mode:
             return self._mock_generate(turn_number)
         return await self._real_generate(user_text, mission_context=mission_context)
+
+    async def generate_response_streaming(
+        self, user_text: str, turn_number: int, mission_context: str = "",
+        on_spoken_ready=None,
+    ) -> tuple[dict, str | None]:
+        """Generate response with TRUE parallel TTS via callback.
+
+        When spoken_response is extracted mid-stream, fires on_spoken_ready(text)
+        immediately — TTS starts while remaining LLM tokens are still arriving.
+
+        Args:
+            on_spoken_ready: async callback fired as soon as spoken_response is
+                             extracted from the stream. This is where TTS should start.
+
+        Returns (full_response_dict, early_spoken_response_or_None).
+        """
+        if self.mock_mode:
+            result = self._mock_generate(turn_number)
+            spoken = result.get("spoken_response")
+            if on_spoken_ready and spoken:
+                asyncio.create_task(on_spoken_ready(spoken))
+            return result, spoken
+        return await self._real_generate_streaming(
+            user_text, mission_context=mission_context, on_spoken_ready=on_spoken_ready
+        )
 
     def _mock_generate(self, turn_number: int) -> dict:
         """Return pre-scripted TutorResponse for the given turn."""
@@ -423,7 +410,7 @@ class OpenAIService:
 
         messages = [
             {"role": "system", "content": _SYSTEM_PROMPT_OPENAI},
-            *self._conversation_history,
+            *self._trimmed_history(),
         ]
 
         try:
@@ -432,13 +419,13 @@ class OpenAIService:
                     model=self._model,
                     messages=messages,
                     temperature=0.6,
-                    max_tokens=450,
+                    max_tokens=250,
                     response_format={"type": "json_object"},
                 ),
-                timeout=15,
+                timeout=12,
             )
         except asyncio.TimeoutError:
-            logger.error("OpenAI GPT timed out (15s)")
+            logger.error("OpenAI GPT timed out (12s)")
             self._conversation_history.pop()
             return None
         except Exception as exc:
@@ -458,24 +445,178 @@ class OpenAIService:
             logger.error("Failed to parse OpenAI response: %s", exc)
             return None
 
+    async def _groq_generate_streaming(self, user_text: str, on_spoken_ready=None) -> tuple[dict | None, str | None]:
+        """Stream via Groq with TRUE parallel TTS.
+
+        Extracts spoken_response mid-stream and fires on_spoken_ready() immediately,
+        so TTS runs in parallel with the remaining ~50% of LLM token generation.
+        """
+        if not self._groq_client:
+            return None, None
+
+        messages = [
+            {"role": "system", "content": _SYSTEM_PROMPT_OPENAI},
+            *self._trimmed_history(),
+            {"role": "user", "content": user_text},
+        ]
+
+        accumulated = ""
+        early_spoken: str | None = None
+        callback_fired = False
+
+        try:
+            stream = await asyncio.wait_for(
+                self._groq_client.chat.completions.create(
+                    model=self._groq_model,
+                    messages=messages,
+                    temperature=0.6,
+                    max_tokens=250,
+                    response_format={"type": "json_object"},
+                    stream=True,
+                ),
+                timeout=6,
+            )
+
+            async for chunk in stream:
+                delta = chunk.choices[0].delta.content or ""
+                accumulated += delta
+
+                # Extract full spoken_response and fire TTS callback immediately
+                if early_spoken is None and '"spoken_response"' in accumulated:
+                    match = re.search(
+                        r'"spoken_response"\s*:\s*"((?:[^"\\]|\\.)*)(?:"|$)',
+                        accumulated,
+                    )
+                    if match and match.group(0).endswith('"'):
+                        early_spoken = match.group(1).replace('\\"', '"').replace('\\n', '\n')
+                        logger.info("spoken_response extracted mid-stream: %s", early_spoken[:80])
+
+                        if on_spoken_ready and not callback_fired:
+                            callback_fired = True
+                            asyncio.create_task(on_spoken_ready(early_spoken))
+                            logger.info("TTS callback fired mid-stream (full text)")
+
+        except asyncio.TimeoutError:
+            logger.warning("Groq streaming timed out (6s)")
+            return None, early_spoken
+        except Exception as exc:
+            logger.warning("Groq streaming error (%s): %s", type(exc).__name__, exc)
+            return None, early_spoken
+
+        if not accumulated.strip():
+            return None, early_spoken
+
+        self._conversation_history.append({"role": "user", "content": user_text})
+        self._conversation_history.append({"role": "assistant", "content": accumulated})
+
+        try:
+            parsed = json.loads(accumulated)
+            return _sanitize_parsed(parsed), early_spoken
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.warning("Groq streaming JSON parse failed: %s", exc)
+            self._conversation_history = self._conversation_history[:-2]
+            return None, early_spoken
+
+    async def _groq_generate(self, user_text: str) -> dict | None:
+        """Try generating via Groq (LPU — ultra-fast inference). Returns None on failure."""
+        if not self._groq_client:
+            return None
+
+        messages = [
+            {"role": "system", "content": _SYSTEM_PROMPT_OPENAI},
+            *self._trimmed_history(),
+            {"role": "user", "content": user_text},
+        ]
+
+        try:
+            completion = await asyncio.wait_for(
+                self._groq_client.chat.completions.create(
+                    model=self._groq_model,
+                    messages=messages,
+                    temperature=0.6,
+                    max_tokens=250,
+                    response_format={"type": "json_object"},
+                ),
+                timeout=6,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Groq timed out (6s)")
+            return None
+        except Exception as exc:
+            logger.warning("Groq error (%s): %s", type(exc).__name__, exc)
+            return None
+
+        response_text = completion.choices[0].message.content
+        self._conversation_history.append({"role": "user", "content": user_text})
+        self._conversation_history.append({"role": "assistant", "content": response_text})
+
+        try:
+            parsed = json.loads(response_text)
+            return _sanitize_parsed(parsed)
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.warning("Groq JSON parse failed: %s", exc)
+            # Remove failed exchange from history
+            self._conversation_history = self._conversation_history[:-2]
+            return None
+
+    async def _real_generate_streaming(self, user_text: str, mission_context: str = "", on_spoken_ready=None) -> tuple[dict, str | None]:
+        """Generate with streaming + true parallel TTS via callback."""
+        enriched_text = f"{mission_context}\nUser said: {user_text}" if mission_context else user_text
+
+        # Strategy 1: Groq streaming (ultra-fast + parallel TTS callback)
+        result, early_spoken = await self._groq_generate_streaming(enriched_text, on_spoken_ready=on_spoken_ready)
+        if result:
+            logger.info("Response from Groq streaming (early_spoken=%s)", early_spoken is not None)
+            return result, early_spoken
+
+        # Fall back to non-streaming strategies — fire callback immediately with full spoken_response
+        result = await self._backboard_generate(enriched_text)
+        if result:
+            logger.info("Response from Backboard (GPT-4o)")
+            spoken = result.get("spoken_response")
+            if on_spoken_ready and spoken:
+                asyncio.create_task(on_spoken_ready(spoken))
+            return result, spoken
+
+        result = await self._openai_generate(enriched_text)
+        if result:
+            logger.info("Response from OpenAI direct")
+            spoken = result.get("spoken_response")
+            if on_spoken_ready and spoken:
+                asyncio.create_task(on_spoken_ready(spoken))
+            return result, spoken
+
+        logger.warning("All LLMs failed, using rule-based fallback")
+        result = self._rule_based_fallback(user_text, mission_context=mission_context)
+        spoken = result.get("spoken_response")
+        if on_spoken_ready and spoken:
+            asyncio.create_task(on_spoken_ready(spoken))
+        return result, spoken
+
     async def _real_generate(self, user_text: str, mission_context: str = "") -> dict:
-        """Generate using Backboard (primary), OpenAI (fallback), rule-based (last resort)."""
+        """Generate using Groq (fastest), Backboard, OpenAI (fallback), rule-based (last resort)."""
         # Prepend mission context to user text for AI awareness
         enriched_text = f"{mission_context}\nUser said: {user_text}" if mission_context else user_text
 
-        # Strategy 1: Backboard.io (GPT-4o, no rate limit issues)
+        # Strategy 1: Groq (ultra-fast LPU inference, ~0.3-0.8s)
+        result = await self._groq_generate(enriched_text)
+        if result:
+            logger.info("Response from Groq (LPU — fastest)")
+            return result
+
+        # Strategy 2: Backboard.io (GPT-4o, no rate limit issues)
         result = await self._backboard_generate(enriched_text)
         if result:
             logger.info("Response from Backboard (GPT-4o)")
             return result
 
-        # Strategy 2: OpenAI direct (gpt-4o-mini, may hit rate limits)
+        # Strategy 3: OpenAI direct (gpt-4o-mini, may hit rate limits)
         logger.info("Backboard failed, trying OpenAI direct...")
         result = await self._openai_generate(enriched_text)
         if result:
             logger.info("Response from OpenAI direct")
             return result
 
-        # Strategy 3: Rule-based fallback (always works)
-        logger.warning("Both LLMs failed, using rule-based fallback")
+        # Strategy 4: Rule-based fallback (always works)
+        logger.warning("All LLMs failed, using rule-based fallback")
         return self._rule_based_fallback(user_text, mission_context=mission_context)

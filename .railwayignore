@@ -1,0 +1,11 @@
+frontend/node_modules
+frontend/dist
+backend/.venv
+backend/__pycache__
+backend/routes/__pycache__
+backend/services/__pycache__
+backend/tests/__pycache__
+.git
+.claude
+node_modules
+*.pyc

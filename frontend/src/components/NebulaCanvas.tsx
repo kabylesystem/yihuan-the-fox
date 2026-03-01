@@ -5,6 +5,8 @@ import * as THREE from 'three';
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceX, forceY, forceZ } from 'd3-force-3d';
 import { Neuron, Synapse, Category } from '../types';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
+import { FlightCameraRig } from './navigation/FlightCameraRig';
+import { FlightModeBranch, FlightModePhase } from './navigation/flightTypes';
 
 const CATEGORY_COLORS: Record<Category, string> = {
   work:     '#3b82f6',
@@ -298,90 +300,9 @@ function SynapseLine({ synapse, neurons, isDimmed, onClick, isCrossBatch, isStre
   );
 }
 
-// ── Spaceship ─────────────────────────────────────────────────────────────
-function Spaceship({ position, target }: { position: THREE.Vector3; target: THREE.Vector3 }) {
-  const meshRef = useRef<THREE.Group>(null);
-  
-  useFrame((state) => {
-    if (meshRef.current) {
-      meshRef.current.position.copy(position);
-      meshRef.current.lookAt(target);
-      // Add a little hover/bobbing effect
-      meshRef.current.position.y += Math.sin(state.clock.getElapsedTime() * 2) * 0.1;
-      // Rotate slightly to face "up" relative to movement
-      meshRef.current.rotateX(Math.PI / 2);
-    }
-  });
-
-  return (
-    <group ref={meshRef}>
-      {/* Main Body - White Middle Section */}
-      <mesh position={[0, 0, 0]}>
-        <sphereGeometry args={[0.4, 32, 32]} />
-        <meshStandardMaterial color="#ffffff" roughness={0.3} />
-      </mesh>
-
-      {/* Top Section - Orange Cone */}
-      <mesh position={[0, 0.35, 0]}>
-        <coneGeometry args={[0.3, 0.6, 32]} />
-        <meshStandardMaterial color="#ff7e47" roughness={0.3} />
-      </mesh>
-      {/* Rounded tip for cone */}
-      <mesh position={[0, 0.65, 0]}>
-        <sphereGeometry args={[0.05, 16, 16]} />
-        <meshStandardMaterial color="#ff7e47" />
-      </mesh>
-
-      {/* Bottom Section - Orange Base */}
-      <mesh position={[0, -0.2, 0]}>
-        <sphereGeometry args={[0.4, 32, 32, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2]} />
-        <meshStandardMaterial color="#ff7e47" roughness={0.3} />
-      </mesh>
-
-      {/* Window Frame - Orange Torus */}
-      <mesh position={[0, 0.1, 0.35]} rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.15, 0.04, 16, 32]} />
-        <meshStandardMaterial color="#ff7e47" />
-      </mesh>
-      {/* Window Glass - Blue Sphere */}
-      <mesh position={[0, 0.1, 0.33]}>
-        <sphereGeometry args={[0.14, 16, 16]} />
-        <meshStandardMaterial color="#1e3a8a" emissive="#1e3a8a" emissiveIntensity={0.5} transparent opacity={0.9} />
-      </mesh>
-
-      {/* Fins - Orange Rounded Boxes */}
-      {[0, Math.PI * 2 / 3, Math.PI * 4 / 3].map((angle, i) => (
-        <group key={i} rotation={[0, angle, 0]}>
-          <mesh position={[0.35, -0.3, 0]} rotation={[0, 0, -Math.PI / 6]}>
-            <boxGeometry args={[0.1, 0.4, 0.3]} />
-            <meshStandardMaterial color="#ff7e47" />
-          </mesh>
-        </group>
-      ))}
-
-      {/* Engine Nozzle - Grey Ribbed */}
-      <mesh position={[0, -0.5, 0]}>
-        <cylinderGeometry args={[0.15, 0.1, 0.2, 16]} />
-        <meshStandardMaterial color="#cccccc" roughness={0.8} />
-      </mesh>
-
-      {/* Engine Glow */}
-      <group position={[0, -0.7, 0]}>
-        <pointLight intensity={3} color="#ffaa00" distance={3} />
-        <mesh>
-          <sphereGeometry args={[0.15, 8, 8]} />
-          <meshBasicMaterial color="#ffaa00" transparent opacity={0.6} />
-        </mesh>
-      </group>
-    </group>
-  );
-}
-
-function CameraController({ targetNode, isFlying, isFocused, positionedNodes }: { targetNode: Neuron | null; isFlying: boolean; isFocused?: boolean; positionedNodes?: Neuron[] }) {
+// ── Camera Controller (non-flight mode) ─────────────────────────────────
+function CameraController({ targetNode, isFocused, positionedNodes }: { targetNode: Neuron | null; isFocused?: boolean; positionedNodes?: Neuron[] }) {
   const { camera, controls } = useThree() as any;
-  const flightAngle = useRef(0);
-  const [shipPos] = useState(() => new THREE.Vector3());
-  const [shipTarget] = useState(() => new THREE.Vector3());
   const lastNodeCount = useRef(0);
 
   // Auto-fit camera when node count changes (new data generated)
@@ -390,7 +311,6 @@ function CameraController({ targetNode, isFlying, isFocused, positionedNodes }: 
     if (positionedNodes.length === lastNodeCount.current) return;
     lastNodeCount.current = positionedNodes.length;
 
-    // Compute bounding sphere of all positioned nodes
     const validNodes = positionedNodes.filter(n => n.x !== undefined && n.y !== undefined && n.z !== undefined);
     if (validNodes.length === 0) return;
     let maxR = 0;
@@ -398,15 +318,13 @@ function CameraController({ targetNode, isFlying, isFocused, positionedNodes }: 
       const r = Math.sqrt((n.x ?? 0) ** 2 + (n.y ?? 0) ** 2 + (n.z ?? 0) ** 2);
       if (r > maxR) maxR = r;
     }
-    // Set camera Z so the whole cloud fits comfortably in view (fov=60)
     const fitZ = Math.max(6, maxR / Math.tan((Math.PI / 180) * 30) + 2);
     camera.position.set(0, 0, fitZ);
     if (controls) controls.target.set(0, 0, 0);
   }, [positionedNodes, camera, controls]);
 
-  useFrame((state, delta) => {
+  useFrame(() => {
     if (isFocused && targetNode && targetNode.x !== undefined) {
-      // When a node is focused, zoom in closer for better view
       const targetPos = new THREE.Vector3(targetNode.x, targetNode.y, targetNode.z + 8);
       camera.position.lerp(targetPos, 0.08);
       if (controls) {
@@ -418,33 +336,14 @@ function CameraController({ targetNode, isFlying, isFocused, positionedNodes }: 
       if (controls) {
         controls.target.lerp(new THREE.Vector3(targetNode.x, targetNode.y, targetNode.z), 0.05);
       }
-    } else if (isFlying) {
-      // Interstellar flight logic: move camera in a large circle or path
-      flightAngle.current += delta * 0.05; // Slower, more majestic flight
-      const radius = 20;
-      const x = Math.cos(flightAngle.current) * radius;
-      const z = Math.sin(flightAngle.current) * radius;
-      const y = Math.sin(flightAngle.current * 0.5) * 8;
-      
-      const flightPos = new THREE.Vector3(x, y, z);
-      camera.position.lerp(flightPos, 0.01);
-      
-      // Update ship position to be slightly in front of camera
-      const shipOffset = new THREE.Vector3(0, -1.2, -4).applyQuaternion(camera.quaternion);
-      shipPos.copy(camera.position).add(shipOffset);
-      shipTarget.copy(camera.position).add(new THREE.Vector3(0, 0, -10).applyQuaternion(camera.quaternion));
-
-      if (controls) {
-        controls.target.lerp(new THREE.Vector3(0, 0, 0), 0.01);
-      }
     }
   });
 
-  return isFlying ? <Spaceship position={shipPos} target={shipTarget} /> : null;
+  return null;
 }
 
-export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick, filterCategory, searchTarget, timePulse, shootingStars, onShootingStarComplete, isFlying, streamingNewIds = new Set(), highlightedIds = new Set() }: { 
-  neurons: Neuron[]; 
+export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick, filterCategory, searchTarget, timePulse, shootingStars, onShootingStarComplete, isFlying, streamingNewIds = new Set(), highlightedIds = new Set(), flightPhase = 'hidden' as FlightModePhase, flightBranch = null as FlightModeBranch, relightTargetId = null as string | null, relightGlowProgress = 1, onTravelArrive, onFocusComplete }: {
+  neurons: Neuron[];
   synapses: Synapse[];
   onNeuronClick: (n: Neuron) => void;
   onSynapseClick: (s: Synapse) => void;
@@ -454,8 +353,14 @@ export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick,
   shootingStars: string[];
   onShootingStarComplete: (id: string) => void;
   isFlying: boolean;
-  streamingNewIds?: Set<string>;  // neurons added this tick — shown grey
-  highlightedIds?: Set<string>;   // old neurons referenced by new synapses — shown bright
+  streamingNewIds?: Set<string>;
+  highlightedIds?: Set<string>;
+  flightPhase?: FlightModePhase;
+  flightBranch?: FlightModeBranch;
+  relightTargetId?: string | null;
+  relightGlowProgress?: number;
+  onTravelArrive?: () => void;
+  onFocusComplete?: () => void;
 }) {
   // Use local state for positioned nodes to avoid prop mutation issues
   const [positionedNodes, setPositionedNodes] = useState<Neuron[]>([]);
@@ -639,7 +544,21 @@ export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick,
           ))}
         </group>
 
-        <CameraController targetNode={activeSearchTarget} isFlying={isFlying} isFocused={focusNodeId !== null} positionedNodes={positionedNodes} />
+        {/* Non-flight camera control */}
+        {flightPhase === 'hidden' && (
+          <CameraController targetNode={activeSearchTarget} isFocused={focusNodeId !== null} positionedNodes={positionedNodes} />
+        )}
+
+        {/* Flight mode: spaceship + camera rig */}
+        <FlightCameraRig
+          phase={isFlying ? flightPhase : 'hidden'}
+          branch={flightBranch}
+          nodes={positionedNodes}
+          searchTarget={activeSearchTarget}
+          relightTargetId={relightTargetId}
+          onTravelArrive={onTravelArrive || (() => {})}
+          onFocusComplete={onFocusComplete || (() => {})}
+        />
 
         <EffectComposer>
           <Bloom luminanceThreshold={0.1} luminanceSmoothing={0.9} height={300} intensity={1.5} />

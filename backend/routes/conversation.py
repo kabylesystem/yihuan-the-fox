@@ -466,13 +466,32 @@ async def _process_turn(
             "Ask genuine questions about THEIR life. Follow their lead if they go elsewhere.\n"
         )
 
-    # ── Step 2: OpenAI (i+1 response generation) ─────────────────────
+    # ── Step 2: LLM (streaming) + TTS fires on FIRST SENTENCE mid-stream ──
     await websocket.send_json({"type": "status", "step": "thinking"})
     llm_start = time.perf_counter()
-    response_data = await _openai_service.generate_response(
-        user_text, turn_index, mission_context=mission_prompt_part
+
+    early_tts_task = None
+    tts_fire_time = [0.0]  # track when TTS was fired
+
+    async def _on_spoken_ready(text: str):
+        nonlocal early_tts_task
+        tts_fire_time[0] = time.perf_counter()
+        logger.info(">>> INSTANT browser TTS (%d chars): '%s'", len(text), text[:60])
+        # Send browser TTS IMMEDIATELY — user hears voice ~0ms after extraction
+        try:
+            await websocket.send_json({"type": "tts", "tts": {"mode": "browser", "text": text}})
+        except Exception:
+            pass
+        # Also fire OpenAI TTS in background (higher quality, arrives later)
+        early_tts_task = asyncio.create_task(_tts_service.synthesize(text))
+
+    response_data, early_spoken = await _openai_service.generate_response_streaming(
+        user_text, turn_index, mission_context=mission_prompt_part,
+        on_spoken_ready=_on_spoken_ready,
     )
     llm_ms = int((time.perf_counter() - llm_start) * 1000)
+    logger.info(">>> PIPELINE: STT=%dms | LLM=%dms | TTS fired at +%dms from start",
+                stt_ms, llm_ms, int((tts_fire_time[0] - t0) * 1000) if tts_fire_time[0] else -1)
     tutor_response = TutorResponse(**response_data)
 
     # ── Fallback: if AI didn't return user_vocabulary, extract from user_said ──
@@ -566,11 +585,17 @@ async def _process_turn(
 
     # ── Step 5: TTS + Backboard in background ──────────────────────
     async def _background_tasks():
-        # TTS — send audio as follow-up message
+        # TTS — use early-fired result if available, otherwise generate now
         try:
-            tts_result = await _tts_service.synthesize(
-                tutor_response.spoken_response
-            )
+            if early_tts_task:
+                tts_result = await early_tts_task
+            else:
+                logger.warning("No early TTS task — generating TTS now (slower path)")
+                tts_result = await _tts_service.synthesize(
+                    tutor_response.spoken_response
+                )
+            total_to_audio = int((time.perf_counter() - t0) * 1000)
+            logger.info(">>> AUDIO SENT: %dms total (from mic-stop to audio-sent)", total_to_audio)
             await websocket.send_json({"type": "tts", "tts": tts_result})
         except Exception as exc:
             logger.error("TTS failed (non-fatal): %s", exc)

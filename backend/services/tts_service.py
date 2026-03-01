@@ -1,14 +1,16 @@
 """
-OpenAI Text-to-Speech (TTS) Service.
+OpenAI Text-to-Speech (TTS) Service — optimized for minimum latency.
 
-Mock mode: Returns text for browser SpeechSynthesis API.
-Real mode: Calls OpenAI TTS API (gpt-4o-mini-tts) with 10s timeout.
-           Falls back to browser TTS on failure.
+Key optimizations:
+- speed=1.15 (faster speech = less audio to generate = faster response)
+- tts-1 model (fastest, not HD)
+- 6s timeout (fail fast)
 """
 
 import asyncio
 import logging
 import os
+import time
 
 from backend.config import MOCK_MODE
 
@@ -37,11 +39,7 @@ class TTSService:
         self._voice = "nova"
 
     async def synthesize(self, text: str) -> dict:
-        """Synthesize speech from text.
-
-        GPT calls now go through Backboard.io, so OpenAI API quota
-        is fully available for TTS. Uses real OpenAI TTS in real mode.
-        """
+        """Synthesize speech from text."""
         if self.mock_mode:
             return self._mock_synthesize(text)
         return await self._real_synthesize(text)
@@ -51,12 +49,14 @@ class TTSService:
         return {"mode": "browser", "text": text}
 
     async def _real_synthesize(self, text: str) -> dict:
-        """Synthesize speech using OpenAI TTS API with 10s timeout.
+        """Synthesize speech using OpenAI TTS API.
 
-        Falls back to browser TTS if the API call fails or times out.
+        speed=1.15 → faster speech, less audio data to generate, quicker response.
+        Timeout 6s (fail fast rather than hang).
         """
         import base64
 
+        t0 = time.perf_counter()
         try:
             response = await asyncio.wait_for(
                 self._client.audio.speech.create(
@@ -64,12 +64,15 @@ class TTSService:
                     voice=self._voice,
                     input=text,
                     response_format="mp3",
+                    speed=1.15,
                 ),
-                timeout=10,
+                timeout=6,
             )
 
             audio_bytes = response.content
             audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+            tts_ms = int((time.perf_counter() - t0) * 1000)
+            logger.info("TTS: %dms for %d chars → %d bytes audio", tts_ms, len(text), len(audio_bytes))
 
             return {
                 "mode": "audio",
@@ -78,7 +81,7 @@ class TTSService:
             }
 
         except asyncio.TimeoutError:
-            logger.error("TTS timed out (10s), falling back to browser TTS")
+            logger.error("TTS timed out (6s), falling back to browser TTS")
             return {"mode": "browser", "text": text}
         except Exception as exc:
             logger.error("TTS failed: %s, falling back to browser TTS", exc)

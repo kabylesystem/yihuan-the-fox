@@ -11,17 +11,19 @@ export default defineConfig({
     },
   },
   define: {
-    'process.env.VITE_BACKEND_URL': JSON.stringify(process.env.VITE_BACKEND_URL || ''),
+    'process.env.VITE_BACKEND_URL': JSON.stringify(
+      process.env.VITE_BACKEND_URL || 'https://echo-neural-lab-production.up.railway.app'
+    ),
   },
   server: {
     port: 4321,
     proxy: {
       '/api': {
-        target: 'http://localhost:4322',
+        target: 'http://localhost:8000',
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://localhost:4322',
+        target: 'ws://localhost:8000',
         ws: true,
       },
     },

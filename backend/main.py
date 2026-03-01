@@ -25,15 +25,7 @@ app = FastAPI(
 # CORS middleware — allow frontend dev server origin
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:4321",
-        "http://127.0.0.1:4321",
-        "https://frontend-puce-kappa-7o1rgv08q5.vercel.app",
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

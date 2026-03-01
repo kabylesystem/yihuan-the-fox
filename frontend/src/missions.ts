@@ -592,7 +592,7 @@ export function MascotOverlay(props: MascotOverlayProps) {
         exit: { opacity: 0 },
         transition: { duration: 0.35 },
         className:
-          'fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-2xl cursor-pointer',
+          `fixed inset-0 z-[200] flex items-center justify-center cursor-pointer ${type === 'onboarding' ? 'bg-black' : 'bg-black/60 backdrop-blur-2xl'}`,
         onClick: autoDismiss ? onDismiss : undefined,
       },
       h(
