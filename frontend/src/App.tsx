@@ -678,7 +678,6 @@ export default function App() {
       }
       if (lastAi?.analysis?.latencyMs) setLastLatency(lastAi.analysis.latencyMs);
       if (lastAi?.analysis?.level && lastAi.analysis.level !== cefrLevel) {
-        setMascotOverlay({ type: 'level_up', data: { old: cefrLevel, new: lastAi.analysis.level } });
         setCefrLevel(lastAi.analysis.level);
       }
 
@@ -814,10 +813,9 @@ export default function App() {
     setCombo(0);
     setMissionIndex(0);
     setMissionDone({});
-    setMissionBanner(null);
+    setMascotOverlay(null);
     setLastLatency(null);
     setLinkInspector(null);
-    setLevelUpEvent(null);
     completedMissionRef.current = null;
     retryCanvas();
   };

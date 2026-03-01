@@ -423,17 +423,20 @@ export function saveMissionProgress(missionIndex: number, missionDone: Record<st
 export function MascotOverlay(props: MascotOverlayProps) {
   const { type, data, onDismiss, onboardingStep, onSelectMinutes } = props;
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Stable ref for onDismiss so the auto-dismiss timer doesn't reset on every parent re-render
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
 
   // Auto-dismiss celebrations
   const autoDismiss = type === 'mission_complete' || type === 'daily_done' || type === 'level_up';
   useEffect(() => {
     if (autoDismiss) {
-      timerRef.current = setTimeout(onDismiss, 3000);
+      timerRef.current = setTimeout(() => onDismissRef.current(), 3000);
       return () => {
         if (timerRef.current) clearTimeout(timerRef.current);
       };
     }
-  }, [autoDismiss, onDismiss]);
+  }, [autoDismiss]);
 
   // Content builder per type
   let content: React.ReactNode;
@@ -589,7 +592,7 @@ export function MascotOverlay(props: MascotOverlayProps) {
         exit: { opacity: 0 },
         transition: { duration: 0.35 },
         className:
-          'fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-2xl',
+          'fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-2xl cursor-pointer',
         onClick: autoDismiss ? onDismiss : undefined,
       },
       h(
@@ -600,7 +603,8 @@ export function MascotOverlay(props: MascotOverlayProps) {
           exit: { opacity: 0, y: 20, scale: 0.95 },
           transition: { type: 'spring', damping: 22, stiffness: 260 },
           className: 'relative max-w-lg w-full mx-6 px-8 py-10',
-          onClick: (e: React.MouseEvent) => e.stopPropagation(),
+          // Only block clicks on content for non-auto-dismiss overlays (onboarding, mission_intro)
+          onClick: autoDismiss ? onDismiss : (e: React.MouseEvent) => e.stopPropagation(),
         },
         content,
       ),
