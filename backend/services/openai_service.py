@@ -13,13 +13,14 @@ import logging
 import os
 import random
 import re
+import time
 
 from backend.config import MOCK_MODE
 
 logger = logging.getLogger(__name__)
 
 _FALLBACK_RESPONSE = {
-    "spoken_response": "Je t'entends. Donne-moi une phrase courte sur ce que tu aimes.",
+    "spoken_response": "I hear you. Give me a short sentence about what you like.",
     "translation_hint": "",
     "corrected_form": "",
     "vocabulary_breakdown": [],
@@ -38,33 +39,73 @@ _FALLBACK_RESPONSE = {
     "mission_progress": {"done": 0, "total": 3, "percent": 0},
 }
 
-# Lean system prompt — spoken_response MUST be FIRST key for fast mid-stream extraction.
-# Fields computed server-side are excluded to reduce token output (~40% faster).
-_SYSTEM_PROMPT_LEAN = (
-    "You are a warm French tutor (Krashen i+1). Return ONLY valid JSON.\n"
-    "NEVER drill/instruct. Have a GENUINE conversation. React with interest.\n"
-    "Model correct French naturally. End with ONE open question.\n"
-    "If context provided, shape topics naturally — never mention themes to learner.\n\n"
-    "JSON keys (spoken_response MUST be FIRST):\n"
-    "- spoken_response: 1-2 French sentences + 1 question (short!)\n"
-    "- translation_hint: English translation\n"
-    "- corrected_form: corrected sentence or empty\n"
-    "- user_vocabulary: [full sentence, sub-phrase1, ...] NEVER individual words\n"
-    "  E.g. ['Je suis allé au parc', 'au parc']\n"
-    "- vocabulary_breakdown: [{word, translation, part_of_speech}]\n"
-    "- graph_links: [{source, target, type}] derivation from sentence→extension\n"
-    "- new_elements, reactivated_elements: string arrays\n"
-    "- mastery_scores: cumulative dict\n"
-    "- user_level_assessment: A1/A1+/A2\n"
-    "- border_update: what learner can now do\n"
-    "Skip: validated_user_units, quality_score, latency_ms, mission_progress, next_mission_hint, corrections.\n\n"
-    'EXAMPLE: {"spoken_response":"Bonjour ! Comment tu t\'appelles ?","translation_hint":"Hello! What is your name?",'
-    '"corrected_form":"","user_vocabulary":["Bonjour"],"vocabulary_breakdown":[{"word":"comment","translation":"how","part_of_speech":"adverb"}],'
-    '"graph_links":[],"new_elements":["comment"],"reactivated_elements":["bonjour"],'
-    '"mastery_scores":{"bonjour":0.3},"user_level_assessment":"A1","border_update":"Can greet."}'
-)
+# ── Language-specific data ─────────────────────────────────────────────────
 
-# Keep old prompts as aliases for backward compat
+_LANGUAGE_NAMES = {
+    "fr": "French", "es": "Spanish", "de": "German", "it": "Italian",
+    "pt": "Portuguese", "ja": "Japanese", "ko": "Korean", "zh": "Chinese",
+    "ar": "Arabic", "ru": "Russian", "nl": "Dutch", "tr": "Turkish",
+    "hi": "Hindi", "sv": "Swedish", "pl": "Polish",
+}
+
+_LANGUAGE_GREETINGS = {
+    "fr": ("Bonjour ! Comment tu t'appelles ?", "Hello! What is your name?", "bonjour"),
+    "es": ("¡Hola! ¿Cómo te llamas?", "Hello! What is your name?", "hola"),
+    "de": ("Hallo! Wie heißt du?", "Hello! What is your name?", "hallo"),
+    "it": ("Ciao! Come ti chiami?", "Hello! What is your name?", "ciao"),
+    "pt": ("Olá! Como te chamas?", "Hello! What is your name?", "olá"),
+    "ja": ("こんにちは！お名前は？", "Hello! What is your name?", "こんにちは"),
+    "ko": ("안녕하세요! 이름이 뭐예요?", "Hello! What is your name?", "안녕하세요"),
+    "zh": ("你好！你叫什么名字？", "Hello! What is your name?", "你好"),
+    "ar": ("مرحبا! ما اسمك؟", "Hello! What is your name?", "مرحبا"),
+    "ru": ("Привет! Как тебя зовут?", "Hello! What is your name?", "привет"),
+    "nl": ("Hallo! Hoe heet je?", "Hello! What is your name?", "hallo"),
+    "tr": ("Merhaba! Adın ne?", "Hello! What is your name?", "merhaba"),
+    "hi": ("नमस्ते! आपका नाम क्या है?", "Hello! What is your name?", "नमस्ते"),
+    "sv": ("Hej! Vad heter du?", "Hello! What is your name?", "hej"),
+    "pl": ("Cześć! Jak masz na imię?", "Hello! What is your name?", "cześć"),
+}
+
+
+def _build_system_prompt(language: str = "fr") -> str:
+    """Build language-aware system prompt. spoken_response MUST be FIRST key for fast mid-stream extraction."""
+    lang_name = _LANGUAGE_NAMES.get(language, language.title())
+    greeting, greeting_en, greeting_word = _LANGUAGE_GREETINGS.get(
+        language, _LANGUAGE_GREETINGS["fr"]
+    )
+
+    return (
+        f"You are a warm {lang_name} conversation partner (Krashen i+1). Return ONLY valid JSON.\n"
+        "CRITICAL RULES:\n"
+        "1. NEVER talk about yourself or invent fictional events about your own life — you are an AI.\n"
+        "2. ALWAYS ask questions about THE LEARNER'S life, experiences, and opinions.\n"
+        "3. React warmly to what they said, then ask ONE genuine question about them.\n"
+        "4. If they send a short opener (like 'Let's go!' or 'Allons-y!'), just greet them warmly and ask what they'd like to talk about.\n"
+        "5. NEVER drill or instruct. Keep it natural and conversational.\n"
+        f"6. Speak {lang_name} only in spoken_response. End with ONE open question.\n"
+        "7. If a conversation theme is provided, naturally steer toward it — never mention the theme explicitly.\n\n"
+        "JSON keys (spoken_response MUST be FIRST):\n"
+        f"- spoken_response: 1-2 {lang_name} sentences + 1 question about the LEARNER (short!)\n"
+        "- translation_hint: English translation\n"
+        "- corrected_form: corrected sentence or empty\n"
+        "- user_vocabulary: phrases/sentences from THE USER'S MESSAGE ONLY — NEVER your own words\n"
+        "- vocabulary_breakdown: [{word, translation, part_of_speech}] — from user's message only\n"
+        "- graph_links: [{source, target, type}] derivation from sentence→extension\n"
+        "- new_elements, reactivated_elements: string arrays from user's message only\n"
+        "- mastery_scores: dict of user's vocabulary only (never your own words)\n"
+        "- user_level_assessment: A1/A1+/A2\n"
+        "- border_update: what learner can now do\n"
+        "Skip: validated_user_units, quality_score, latency_ms, mission_progress, next_mission_hint, corrections.\n\n"
+        f'EXAMPLE: {{"spoken_response":"{greeting}","translation_hint":"{greeting_en}",'
+        f'"corrected_form":"","user_vocabulary":["{greeting_word.title()}"],'
+        f'"vocabulary_breakdown":[],'
+        f'"graph_links":[],"new_elements":[],"reactivated_elements":["{greeting_word}"],'
+        f'"mastery_scores":{{"{greeting_word}":0.3}},"user_level_assessment":"A1","border_update":"Can greet."}}'
+    )
+
+
+# Default prompts (French) — overridden dynamically when language is set
+_SYSTEM_PROMPT_LEAN = _build_system_prompt("fr")
 _SYSTEM_PROMPT_BACKBOARD = _SYSTEM_PROMPT_LEAN
 _SYSTEM_PROMPT_OPENAI = _SYSTEM_PROMPT_LEAN
 
@@ -81,28 +122,24 @@ def _norm_key(text: str) -> str:
 
 
 def _extract_units_heuristic(user_text: str) -> list[str]:
+    """Language-agnostic fallback: extract meaningful tokens from user text."""
     text = (user_text or "").strip().replace("\u2019", "'")
     if not text:
-        return ["bonjour"]
-    lower = text.lower()
-    chunks: list[str] = []
-    if "ça va" in lower or "ca va" in lower:
-        chunks.append("ça va")
-    if "je m'appelle" in lower:
-        chunks.append("je m'appelle")
-    if "j'habite" in lower or "j habite" in lower:
-        chunks.append("j'habite")
-    if "j'aime" in lower or "j aime" in lower:
-        chunks.append("j'aime")
-    if chunks:
-        return list(dict.fromkeys(chunks))
+        return [text] if text else []
 
-    tokens = re.findall(r"[A-Za-zÀ-ÿ']+", text)
-    stop = {"je", "tu", "il", "elle", "nous", "vous", "de", "du", "des", "et", "un", "une", "le", "la", "les", "est"}
+    # Generic tokenization — works across scripts
+    tokens = re.findall(r"\w+(?:'\w+)?", text)
+    # Minimal universal stop set (function words in common languages)
+    stop = {
+        "i", "a", "the", "is", "am", "are", "to", "of", "and", "or", "in", "on",
+        "je", "tu", "il", "elle", "le", "la", "les", "un", "une", "de", "du", "des", "et", "est",
+        "yo", "el", "es", "de", "y", "en",
+        "ich", "du", "der", "die", "das", "und", "ist",
+    }
     kept = [t.lower() for t in tokens if len(t) > 1 and t.lower() not in stop]
     if not kept:
         return [text.lower()]
-    return list(dict.fromkeys(kept[:3]))
+    return list(dict.fromkeys(kept[:5]))
 
 
 def _strip_markdown_fences(text: str) -> str:
@@ -202,17 +239,41 @@ class OpenAIService:
         self._backboard_assistant_id = None
         self._backboard_thread_id = None
         self._groq_client = None
+        self._language = "fr"
+        self._system_prompt = _build_system_prompt("fr")
+        # Rate-limit cooldown: skip providers that returned 429 recently
+        self._groq_cooldown_until = 0.0
+        self._openai_cooldown_until = 0.0
         if not self.mock_mode:
             self._init_real_client()
             self._init_backboard_client()
             self._init_groq_client()
 
+    def set_language(self, language: str):
+        """Switch the target language for the AI tutor."""
+        if language != self._language:
+            logger.info("LLM language changed: %s → %s", self._language, language)
+            self._language = language
+            self._system_prompt = _build_system_prompt(language)
+            # Reset backboard thread so it gets the new system prompt
+            self._backboard_thread_id = None
+            self._backboard_assistant_id = None
+            # Clear conversation history — old turns are in the wrong language
+            if hasattr(self, "_conversation_history"):
+                logger.info("Clearing %d history turns (language switch)", len(self._conversation_history))
+                self._conversation_history = []
+
     def reset(self):
         """Clear conversation history for a fresh session."""
         if not self.mock_mode:
             self._conversation_history = []
-            # Create a new thread for fresh conversation
             self._backboard_thread_id = None
+
+    def inject_turn(self, user_said: str, ai_response: str):
+        """Replay a historical turn into the conversation context."""
+        if not self.mock_mode:
+            self._conversation_history.append({"role": "user", "content": user_said})
+            self._conversation_history.append({"role": "assistant", "content": ai_response})
 
     def _init_backboard_client(self):
         """Initialize Backboard client for primary LLM calls (GPT-4o)."""
@@ -318,22 +379,15 @@ class OpenAIService:
             }
             for u in units
         ]
-        first = units[0] if units else "bonjour"
+        first = units[0] if units else "hello"
+        lang_name = _LANGUAGE_NAMES.get(self._language, self._language.title())
+        greeting_data = _LANGUAGE_GREETINGS.get(self._language, _LANGUAGE_GREETINGS.get("fr"))
+        greeting = greeting_data[0] if greeting_data else "Hello!"
 
-        # Natural i+1 conversation — genuine questions, no drilling
+        # Language-agnostic fallback — use the target greeting + English hint
         templates = [
-            (f"Ah, « {first} » ! Moi aussi. Et toi, comment tu t'appelles ?",
-             f"Ah, '{first}'! Me too. And you, what's your name?"),
-            (f"Super, « {first} » ! Moi, j'adore Paris. Et toi, tu habites où ?",
-             f"Great, '{first}'! I love Paris. And you, where do you live?"),
-            (f"Oh, « {first} » — c'est intéressant ! Qu'est-ce que tu fais dans la vie ?",
-             f"Oh, '{first}' — that's interesting! What do you do for a living?"),
-            (f"J'aime bien « {first} » ! Et qu'est-ce que tu aimes manger ?",
-             f"I like '{first}'! And what do you like to eat?"),
-            (f"Ah oui, « {first} » ! Moi, j'aime beaucoup le chocolat. Et toi, qu'est-ce que tu aimes ?",
-             f"Oh yes, '{first}'! I really love chocolate. And you, what do you like?"),
-            (f"Très bien ! « {first} ». Et aujourd'hui, tu as fait quoi ?",
-             f"Very good! '{first}'. And today, what did you do?"),
+            (greeting, f"Hello! What's your name? (fallback — {lang_name} AI will respond properly next turn)"),
+            (greeting, f"Hello! Tell me about yourself. (fallback — {lang_name} AI will respond properly next turn)"),
         ]
         spoken, hint = random.choice(templates)
 
@@ -358,8 +412,8 @@ class OpenAIService:
             # Lazily create assistant + thread
             if not self._backboard_assistant_id:
                 assistant = await self._backboard_client.create_assistant(
-                    name="Echo French Tutor",
-                    system_prompt=_SYSTEM_PROMPT_BACKBOARD,
+                    name=f"Echo {_LANGUAGE_NAMES.get(self._language, 'Language')} Tutor",
+                    system_prompt=self._system_prompt,
                 )
                 self._backboard_assistant_id = assistant.assistant_id
                 logger.info("Backboard assistant created: %s", self._backboard_assistant_id)
@@ -404,12 +458,15 @@ class OpenAIService:
 
     async def _openai_generate(self, user_text: str) -> dict | None:
         """Try generating via OpenAI direct API. Returns None on failure."""
+        if time.perf_counter() < self._openai_cooldown_until:
+            logger.info("OpenAI skipped (rate-limit cooldown)")
+            return None
         self._conversation_history.append(
             {"role": "user", "content": user_text}
         )
 
         messages = [
-            {"role": "system", "content": _SYSTEM_PROMPT_OPENAI},
+            {"role": "system", "content": self._system_prompt},
             *self._trimmed_history(),
         ]
 
@@ -422,14 +479,17 @@ class OpenAIService:
                     max_tokens=250,
                     response_format={"type": "json_object"},
                 ),
-                timeout=12,
+                timeout=6,
             )
         except asyncio.TimeoutError:
-            logger.error("OpenAI GPT timed out (12s)")
+            logger.error("OpenAI GPT timed out (6s)")
             self._conversation_history.pop()
             return None
         except Exception as exc:
             logger.error("OpenAI GPT error (%s): %s", type(exc).__name__, exc)
+            if "rate_limit" in type(exc).__name__.lower() or "429" in str(exc):
+                self._openai_cooldown_until = time.perf_counter() + 30  # 30s cooldown
+                logger.info("OpenAI rate-limited → cooldown 30s")
             self._conversation_history.pop()
             return None
 
@@ -453,9 +513,12 @@ class OpenAIService:
         """
         if not self._groq_client:
             return None, None
+        if time.perf_counter() < self._groq_cooldown_until:
+            logger.info("Groq skipped (rate-limit cooldown)")
+            return None, None
 
         messages = [
-            {"role": "system", "content": _SYSTEM_PROMPT_OPENAI},
+            {"role": "system", "content": self._system_prompt},
             *self._trimmed_history(),
             {"role": "user", "content": user_text},
         ]
@@ -501,6 +564,9 @@ class OpenAIService:
             return None, early_spoken
         except Exception as exc:
             logger.warning("Groq streaming error (%s): %s", type(exc).__name__, exc)
+            if "rate_limit" in type(exc).__name__.lower() or "429" in str(exc):
+                self._groq_cooldown_until = time.perf_counter() + 300  # 5 min cooldown
+                logger.info("Groq rate-limited → cooldown 5min")
             return None, early_spoken
 
         if not accumulated.strip():
@@ -521,9 +587,11 @@ class OpenAIService:
         """Try generating via Groq (LPU — ultra-fast inference). Returns None on failure."""
         if not self._groq_client:
             return None
+        if time.perf_counter() < self._groq_cooldown_until:
+            return None
 
         messages = [
-            {"role": "system", "content": _SYSTEM_PROMPT_OPENAI},
+            {"role": "system", "content": self._system_prompt},
             *self._trimmed_history(),
             {"role": "user", "content": user_text},
         ]
@@ -544,6 +612,8 @@ class OpenAIService:
             return None
         except Exception as exc:
             logger.warning("Groq error (%s): %s", type(exc).__name__, exc)
+            if "rate_limit" in type(exc).__name__.lower() or "429" in str(exc):
+                self._groq_cooldown_until = time.perf_counter() + 300
             return None
 
         response_text = completion.choices[0].message.content
