@@ -386,6 +386,24 @@ function GraphLegend() {
   );
 }
 
+/** Slowly rotating star field wrapper for sense of depth and motion */
+function RotatingStarField() {
+  const groupRef = useRef<THREE.Group>(null);
+  useFrame((_, delta) => {
+    if (groupRef.current) {
+      groupRef.current.rotation.y += delta * 0.012;
+      groupRef.current.rotation.x += delta * 0.004;
+    }
+  });
+  return (
+    <group ref={groupRef}>
+      <Stars radius={200} depth={120} count={16000} factor={3.5} saturation={0.15} fade speed={1.2} />
+      <Stars radius={150} depth={80} count={6000} factor={5.5} saturation={0.2} fade speed={1.8} />
+      <Stars radius={100} depth={40} count={2000} factor={8.0} saturation={0.1} fade speed={2.5} />
+    </group>
+  );
+}
+
 // ── Main Component ──────────────────────────────────────────────────────
 
 export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick, filterCategory, searchTarget, timePulse, shootingStars, onShootingStarComplete, isFlying, recenterNonce }: {
@@ -659,37 +677,22 @@ export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick,
       className="w-full h-full relative"
       style={{
         background:
-          'radial-gradient(circle at 50% 26%, #fbfbf8 0%, #f3f5fb 36%, #e7ecf6 70%, #d7dfef 100%)',
+          'radial-gradient(circle at 50% 22%, #0c1228 0%, #060d1f 36%, #030714 66%, #010309 100%)',
       }}
     >
       <div
-        className="absolute inset-0 pointer-events-none z-[1] mix-blend-multiply"
+        className="absolute inset-0 pointer-events-none z-[1]"
         style={{
-          opacity: 0.2,
-          backgroundImage:
-            'radial-gradient(rgba(30,52,120,0.22) 0.55px, transparent 0.55px), radial-gradient(rgba(22,40,92,0.14) 0.45px, transparent 0.45px)',
-          backgroundSize: '3px 3px, 4px 4px',
-          backgroundPosition: '0 0, 1px 1px',
-        }}
-      />
-      <div
-        className="absolute inset-0 pointer-events-none z-[2]"
-        style={{
-          opacity: 0.98,
-          backgroundImage:
-            'radial-gradient(circle, rgba(11,29,84,0.96) 1.45px, transparent 1.7px), radial-gradient(circle, rgba(29,56,129,0.85) 1.15px, transparent 1.38px), radial-gradient(circle, rgba(16,32,78,0.78) 0.9px, transparent 1.1px)',
-          backgroundSize: '170px 170px, 125px 125px, 88px 88px',
-          backgroundPosition: '20px 30px, 60px 10px, 12px 48px',
+          background:
+            'radial-gradient(circle at 50% 42%, rgba(40,65,140,0.07) 0%, rgba(15,30,80,0.04) 28%, rgba(2,4,12,0.0) 72%)',
         }}
       />
       <Canvas camera={{ position: [0, 0, 12], fov: 60 }}>
-        <color attach="background" args={['#eef2fa']} />
-        <ambientLight intensity={0.58} />
-        <pointLight position={[10, 10, 10]} intensity={0.7} />
+        <color attach="background" args={['#020510']} />
+        <ambientLight intensity={0.28} />
+        <pointLight position={[10, 10, 10]} intensity={0.6} />
 
-        <Stars radius={180} depth={96} count={12000} factor={3.4} saturation={0} fade speed={0.05} color="#1a3578" />
-        <Stars radius={145} depth={64} count={4600} factor={5.2} saturation={0} fade speed={0.08} color="#3f60a8" />
-        <Stars radius={105} depth={32} count={1100} factor={7.6} saturation={0} fade speed={0.16} color="#0c255f" />
+        <RotatingStarField />
 
         <group>
           {/* Render synapses FIRST (behind nodes) */}

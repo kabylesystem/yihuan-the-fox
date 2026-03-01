@@ -181,23 +181,24 @@ MOCK_CONVERSATION = [
 
 MOCK_GRAPH_NODES = [
     # User-spoken words only (from user_vocabulary + reactivated_elements)
+    # usage_count = number of turns where the user actually said/reused this word
     # Turn 1: user said "bonjour"
-    {"id": "bonjour", "label": "bonjour", "type": "vocab", "mastery": 1.0, "level": "A1", "turn_introduced": 1},
+    {"id": "bonjour", "label": "bonjour", "type": "vocab", "mastery": 1.0, "level": "A1", "turn_introduced": 1, "usage_count": 1},
     # Turn 2: user said "je m'appelle"; reactivated: tu t'appelles, bonjour
-    {"id": "je_mappelle", "label": "je m'appelle", "type": "sentence", "mastery": 0.9, "level": "A1", "turn_introduced": 2},
-    {"id": "tu_tappelles", "label": "tu t'appelles", "type": "sentence", "mastery": 0.85, "level": "A1", "turn_introduced": 2},
+    {"id": "je_mappelle", "label": "je m'appelle", "type": "sentence", "mastery": 0.9, "level": "A1", "turn_introduced": 2, "usage_count": 1},
+    {"id": "tu_tappelles", "label": "tu t'appelles", "type": "sentence", "mastery": 0.85, "level": "A1", "turn_introduced": 2, "usage_count": 1},
     # Turn 3: user said "j'habite", "Paris"; reactivated: tu habites, où
-    {"id": "jhabite", "label": "j'habite", "type": "sentence", "mastery": 0.85, "level": "A1", "turn_introduced": 3},
-    {"id": "paris", "label": "Paris", "type": "vocab", "mastery": 0.7, "level": "A1", "turn_introduced": 3},
+    {"id": "jhabite", "label": "j'habite", "type": "sentence", "mastery": 0.85, "level": "A1", "turn_introduced": 3, "usage_count": 1},
+    {"id": "paris", "label": "Paris", "type": "vocab", "mastery": 0.7, "level": "A1", "turn_introduced": 3, "usage_count": 2},
     # Turn 4: user said "j'aime", "beaucoup"; reactivated: tu aimes, j'habite, bonjour
-    {"id": "jaime", "label": "j'aime", "type": "sentence", "mastery": 0.8, "level": "A1+", "turn_introduced": 4},
-    {"id": "beaucoup", "label": "beaucoup", "type": "vocab", "mastery": 0.5, "level": "A1+", "turn_introduced": 4},
-    {"id": "tu_aimes", "label": "tu aimes", "type": "sentence", "mastery": 0.75, "level": "A1+", "turn_introduced": 4},
+    {"id": "jaime", "label": "j'aime", "type": "sentence", "mastery": 0.8, "level": "A1+", "turn_introduced": 4, "usage_count": 2},
+    {"id": "beaucoup", "label": "beaucoup", "type": "vocab", "mastery": 0.5, "level": "A1+", "turn_introduced": 4, "usage_count": 1},
+    {"id": "tu_aimes", "label": "tu aimes", "type": "sentence", "mastery": 0.75, "level": "A1+", "turn_introduced": 4, "usage_count": 1},
     # Turn 5: user said "visiter", "musées", "manger", "croissants"; reactivated: tu aimes, faire, belle, ville
-    {"id": "visiter", "label": "visiter", "type": "vocab", "mastery": 0.6, "level": "A2", "turn_introduced": 5},
-    {"id": "musees", "label": "musées", "type": "vocab", "mastery": 0.5, "level": "A2", "turn_introduced": 5},
-    {"id": "manger", "label": "manger", "type": "vocab", "mastery": 0.5, "level": "A2", "turn_introduced": 5},
-    {"id": "croissants", "label": "croissants", "type": "vocab", "mastery": 0.4, "level": "A2", "turn_introduced": 5},
+    {"id": "visiter", "label": "visiter", "type": "vocab", "mastery": 0.6, "level": "A2", "turn_introduced": 5, "usage_count": 1},
+    {"id": "musees", "label": "musées", "type": "vocab", "mastery": 0.5, "level": "A2", "turn_introduced": 5, "usage_count": 1},
+    {"id": "manger", "label": "manger", "type": "vocab", "mastery": 0.5, "level": "A2", "turn_introduced": 5, "usage_count": 1},
+    {"id": "croissants", "label": "croissants", "type": "vocab", "mastery": 0.4, "level": "A2", "turn_introduced": 5, "usage_count": 1},
 ]
 
 

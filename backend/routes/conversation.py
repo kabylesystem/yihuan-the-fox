@@ -353,6 +353,7 @@ async def conversation_ws(websocket: WebSocket) -> None:
 
             msg_type = message.get("type", "")
             content = message.get("content", "")
+            mission_context = message.get("mission_context")
 
             if msg_type not in ("text", "audio"):
                 await websocket.send_json(
@@ -374,6 +375,7 @@ async def conversation_ws(websocket: WebSocket) -> None:
                     msg_type=msg_type,
                     content=content,
                     state=state,
+                    mission_context=mission_context,
                 )
                 # _process_turn sends turn_response directly via websocket.
                 # If it returns a dict (e.g. error), send it.
@@ -394,6 +396,7 @@ async def _process_turn(
     msg_type: str,
     content: str,
     state: "SessionState",
+    mission_context: dict | None = None,
 ) -> dict:
     """Process a single conversation turn through the full pipeline.
 
@@ -424,11 +427,28 @@ async def _process_turn(
     if not user_text:
         return {"type": "error", "message": "Could not understand audio — try again or type instead."}
 
+    # ── Build mission-aware context for the AI ───────────────────────
+    mission_prompt_part = ""
+    if mission_context:
+        tasks_str = ", ".join(
+            f'{"[DONE]" if t.get("done") else "[TODO]"} {t.get("label", "")}'
+            for t in (mission_context.get("tasks") or [])
+        )
+        mission_prompt_part = (
+            f"\n[CURRENT MISSION: {mission_context.get('title', '')}]\n"
+            f"Objective: {mission_context.get('objective', '')}\n"
+            f"Tasks: {tasks_str}\n"
+            f"Progress: {mission_context.get('done_count', 0)}/{mission_context.get('total', 3)}\n"
+            f"Hint for learner: {mission_context.get('starter', '')}\n"
+            "IMPORTANT: Guide the learner toward completing the remaining [TODO] tasks. "
+            "Your spoken_response should naturally steer the conversation to help them achieve the mission goals.\n"
+        )
+
     # ── Step 2: OpenAI (i+1 response generation) ─────────────────────
     await websocket.send_json({"type": "status", "step": "thinking"})
     llm_start = time.perf_counter()
     response_data = await _openai_service.generate_response(
-        user_text, turn_index
+        user_text, turn_index, mission_context=mission_prompt_part
     )
     llm_ms = int((time.perf_counter() - llm_start) * 1000)
     tutor_response = TutorResponse(**response_data)

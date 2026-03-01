@@ -15,33 +15,17 @@ let _ttsPlayed = false;
 let _ttsFallbackTimer: ReturnType<typeof setTimeout> | null = null;
 let _lastSpokenResponse = '';
 
-// Register TTS callback to play audio that arrives after the text response
-backend.onTTS((tts) => {
-  if (tts) {
-    _ttsPlayed = true;
-    if (_ttsFallbackTimer) {
-      clearTimeout(_ttsFallbackTimer);
-      _ttsFallbackTimer = null;
-    }
-    playTTS(tts);
-  }
-});
+// TTS audio playback is handled by App.tsx's onTTS(playTtsPayload) callback.
+// Do NOT register a competing onTTS callback here — backendService only keeps one.
 
 /**
  * Schedule a browser TTS fallback if backend TTS doesn't arrive within 4 seconds.
- * Called after receiving the text response.
+ * NOTE: TTS is now handled by App.tsx's onTTS(playTtsPayload) callback.
+ * This fallback is kept as a safety net but the main path is via WebSocket → App.tsx.
  */
-function scheduleTTSFallback(spokenResponse: string) {
-  _ttsPlayed = false;
-  _lastSpokenResponse = spokenResponse;
-  if (_ttsFallbackTimer) clearTimeout(_ttsFallbackTimer);
-  _ttsFallbackTimer = setTimeout(() => {
-    if (!_ttsPlayed && _lastSpokenResponse) {
-      console.warn('TTS fallback: backend TTS did not arrive, using browser TTS');
-      speakWithBrowser(_lastSpokenResponse);
-    }
-    _ttsFallbackTimer = null;
-  }, 4000);
+function scheduleTTSFallback(_spokenResponse: string) {
+  // No-op: TTS playback is handled by App.tsx via the onTTS WebSocket callback.
+  // Browser speechSynthesis is unreliable on Linux, so we rely on OpenAI TTS audio.
 }
 
 // ── TTS Audio Playback ──────────────────────────────────────────────────
@@ -180,17 +164,17 @@ const MOCK_TURNS = [
 
 // Graph data — USER-SPOKEN words only (not AI tutor's words)
 const MOCK_GRAPH_NODES = [
-  { id: 'bonjour', label: 'bonjour', type: 'vocab', mastery: 0.9, level: 'A1', turn_introduced: 1 },
-  { id: 'je_mappelle', label: "je m'appelle", type: 'sentence', mastery: 0.8, level: 'A1', turn_introduced: 2 },
-  { id: 'marie', label: 'Marie', type: 'vocab', mastery: 0.7, level: 'A1', turn_introduced: 2 },
-  { id: 'jhabite', label: "j'habite", type: 'sentence', mastery: 0.7, level: 'A1+', turn_introduced: 3 },
-  { id: 'paris', label: 'Paris', type: 'vocab', mastery: 0.8, level: 'A1+', turn_introduced: 3 },
-  { id: 'jaime', label: "j'aime", type: 'sentence', mastery: 0.6, level: 'A1+', turn_introduced: 4 },
-  { id: 'beaucoup', label: 'beaucoup', type: 'vocab', mastery: 0.5, level: 'A1+', turn_introduced: 4 },
-  { id: 'visiter', label: 'visiter', type: 'vocab', mastery: 0.3, level: 'A2', turn_introduced: 5 },
-  { id: 'musees', label: 'musées', type: 'vocab', mastery: 0.3, level: 'A2', turn_introduced: 5 },
-  { id: 'manger', label: 'manger', type: 'vocab', mastery: 0.3, level: 'A2', turn_introduced: 5 },
-  { id: 'croissants', label: 'croissants', type: 'vocab', mastery: 0.3, level: 'A2', turn_introduced: 5 },
+  { id: 'bonjour', label: 'bonjour', type: 'vocab', mastery: 0.9, level: 'A1', turn_introduced: 1, usage_count: 1 },
+  { id: 'je_mappelle', label: "je m'appelle", type: 'sentence', mastery: 0.8, level: 'A1', turn_introduced: 2, usage_count: 1 },
+  { id: 'marie', label: 'Marie', type: 'vocab', mastery: 0.7, level: 'A1', turn_introduced: 2, usage_count: 1 },
+  { id: 'jhabite', label: "j'habite", type: 'sentence', mastery: 0.7, level: 'A1+', turn_introduced: 3, usage_count: 1 },
+  { id: 'paris', label: 'Paris', type: 'vocab', mastery: 0.8, level: 'A1+', turn_introduced: 3, usage_count: 2 },
+  { id: 'jaime', label: "j'aime", type: 'sentence', mastery: 0.6, level: 'A1+', turn_introduced: 4, usage_count: 2 },
+  { id: 'beaucoup', label: 'beaucoup', type: 'vocab', mastery: 0.5, level: 'A1+', turn_introduced: 4, usage_count: 1 },
+  { id: 'visiter', label: 'visiter', type: 'vocab', mastery: 0.3, level: 'A2', turn_introduced: 5, usage_count: 1 },
+  { id: 'musees', label: 'musées', type: 'vocab', mastery: 0.3, level: 'A2', turn_introduced: 5, usage_count: 1 },
+  { id: 'manger', label: 'manger', type: 'vocab', mastery: 0.3, level: 'A2', turn_introduced: 5, usage_count: 1 },
+  { id: 'croissants', label: 'croissants', type: 'vocab', mastery: 0.3, level: 'A2', turn_introduced: 5, usage_count: 1 },
 ];
 
 const MOCK_GRAPH_LINKS = [
@@ -482,7 +466,7 @@ function processMockTurn(currentState: NebulaState, userInput?: string): NebulaS
     nodeKind: NODE_KIND_MAP[n.type] || ('vocab' as NodeKind),
     potential: n.mastery,
     strength: n.mastery,
-    usageCount: Math.ceil(n.mastery * 5),
+    usageCount: n.usage_count ?? 1,
     category: CATEGORY_MAP[n.level] || ('daily' as Category),
     grammarDna: n.type === 'grammar' ? 'Grammar' : n.type === 'sentence' ? 'SVO' : 'Vocab',
     isShadow: n.mastery < 0.3,

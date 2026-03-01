@@ -4,9 +4,9 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { Neuron, Synapse, NebulaState, Category, Message } from './types';
 import { analyzeInput, checkBackend, isUsingBackend, resetMockState, getMockTurnIndex, getTotalMockTurns } from './services/geminiService';
 import { onConnectionStatusChange, onStatusStep, onTTS, ConnectionStatus, hardResetSession } from './services/backendService';
-import { Send, Zap, Info, Loader2, Search, Filter, Mic, Clock, X, MessageSquare, User, Bot, ChevronDown, ChevronUp, Plane, RefreshCw, Wifi, WifiOff, CheckCircle2, Circle, Sparkles, LocateFixed, Trash2, Award } from 'lucide-react';
+import { Send, Zap, Info, Loader2, Search, Filter, Mic, Clock, X, MessageSquare, User, Bot, ChevronDown, ChevronUp, Plane, RefreshCw, Wifi, WifiOff, CheckCircle2, Circle, Sparkles, LocateFixed, Trash2, Award, Volume2, FlaskConical } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import blueRingLogo from './assets/blue-ring-logo.svg';
+// Logo is now a CSS radial gradient (black hole with blue glow)
 
 const INITIAL_STATE: NebulaState = {
   neurons: [],
@@ -29,7 +29,162 @@ const INITIAL_STATE: NebulaState = {
   ]
 };
 
-const CATEGORIES: (Category | 'all')[] = ['all', 'work', 'daily', 'travel', 'social', 'academic', 'coding', 'other'];
+const DEFAULT_CATEGORIES: (Category | 'all')[] = ['all', 'daily', 'social', 'travel', 'work', 'academic', 'coding', 'other'];
+
+// ── Test Data Generator ──────────────────────────────────────────────
+const FRENCH_VOCAB: { word: string; translation: string; category: Category; kind: 'vocab' | 'sentence' | 'grammar' }[] = [
+  { word: 'bonjour', translation: 'hello', category: 'social', kind: 'vocab' },
+  { word: 'merci', translation: 'thank you', category: 'social', kind: 'vocab' },
+  { word: 'au revoir', translation: 'goodbye', category: 'social', kind: 'vocab' },
+  { word: "je m'appelle", translation: 'my name is', category: 'social', kind: 'sentence' },
+  { word: 'comment ça va', translation: 'how are you', category: 'social', kind: 'sentence' },
+  { word: "j'habite à", translation: 'I live in', category: 'daily', kind: 'sentence' },
+  { word: 'manger', translation: 'to eat', category: 'daily', kind: 'vocab' },
+  { word: 'boire', translation: 'to drink', category: 'daily', kind: 'vocab' },
+  { word: 'dormir', translation: 'to sleep', category: 'daily', kind: 'vocab' },
+  { word: 'travailler', translation: 'to work', category: 'work', kind: 'vocab' },
+  { word: 'le bureau', translation: 'the office', category: 'work', kind: 'vocab' },
+  { word: 'un collègue', translation: 'a colleague', category: 'work', kind: 'vocab' },
+  { word: 'une réunion', translation: 'a meeting', category: 'work', kind: 'vocab' },
+  { word: 'le voyage', translation: 'the trip', category: 'travel', kind: 'vocab' },
+  { word: "l'avion", translation: 'the plane', category: 'travel', kind: 'vocab' },
+  { word: 'la gare', translation: 'the station', category: 'travel', kind: 'vocab' },
+  { word: 'un billet', translation: 'a ticket', category: 'travel', kind: 'vocab' },
+  { word: "j'aime", translation: 'I like', category: 'daily', kind: 'vocab' },
+  { word: 'le fromage', translation: 'cheese', category: 'daily', kind: 'vocab' },
+  { word: 'le pain', translation: 'bread', category: 'daily', kind: 'vocab' },
+  { word: 'le café', translation: 'coffee', category: 'daily', kind: 'vocab' },
+  { word: "aujourd'hui", translation: 'today', category: 'daily', kind: 'vocab' },
+  { word: 'demain', translation: 'tomorrow', category: 'daily', kind: 'vocab' },
+  { word: 'hier', translation: 'yesterday', category: 'daily', kind: 'vocab' },
+  { word: 'la maison', translation: 'the house', category: 'daily', kind: 'vocab' },
+  { word: 'le musée', translation: 'the museum', category: 'travel', kind: 'vocab' },
+  { word: 'la plage', translation: 'the beach', category: 'travel', kind: 'vocab' },
+  { word: "l'hôtel", translation: 'the hotel', category: 'travel', kind: 'vocab' },
+  { word: 'un ami', translation: 'a friend', category: 'social', kind: 'vocab' },
+  { word: 'la famille', translation: 'the family', category: 'social', kind: 'vocab' },
+  { word: "s'il vous plaît", translation: 'please', category: 'social', kind: 'sentence' },
+  { word: 'excusez-moi', translation: 'excuse me', category: 'social', kind: 'sentence' },
+  { word: "l'université", translation: 'the university', category: 'academic', kind: 'vocab' },
+  { word: 'étudier', translation: 'to study', category: 'academic', kind: 'vocab' },
+  { word: 'un examen', translation: 'an exam', category: 'academic', kind: 'vocab' },
+  { word: 'le professeur', translation: 'the teacher', category: 'academic', kind: 'vocab' },
+  { word: 'apprendre', translation: 'to learn', category: 'academic', kind: 'vocab' },
+  { word: 'la bibliothèque', translation: 'the library', category: 'academic', kind: 'vocab' },
+  { word: 'le code', translation: 'the code', category: 'coding', kind: 'vocab' },
+  { word: 'programmer', translation: 'to code', category: 'coding', kind: 'vocab' },
+  { word: "l'ordinateur", translation: 'the computer', category: 'coding', kind: 'vocab' },
+  { word: 'le clavier', translation: 'the keyboard', category: 'coding', kind: 'vocab' },
+  { word: 'je voudrais', translation: 'I would like', category: 'social', kind: 'sentence' },
+  { word: 'combien', translation: 'how much', category: 'daily', kind: 'vocab' },
+  { word: 'où est', translation: 'where is', category: 'travel', kind: 'sentence' },
+  { word: 'le restaurant', translation: 'the restaurant', category: 'daily', kind: 'vocab' },
+  { word: "l'eau", translation: 'water', category: 'daily', kind: 'vocab' },
+  { word: 'le vin', translation: 'wine', category: 'daily', kind: 'vocab' },
+  { word: 'la carte', translation: 'the menu', category: 'daily', kind: 'vocab' },
+  { word: 'le métro', translation: 'the metro', category: 'travel', kind: 'vocab' },
+  { word: 'à gauche', translation: 'to the left', category: 'travel', kind: 'vocab' },
+  { word: 'à droite', translation: 'to the right', category: 'travel', kind: 'vocab' },
+  { word: 'tout droit', translation: 'straight ahead', category: 'travel', kind: 'vocab' },
+  { word: 'parler', translation: 'to speak', category: 'social', kind: 'vocab' },
+  { word: 'comprendre', translation: 'to understand', category: 'academic', kind: 'vocab' },
+  { word: 'écrire', translation: 'to write', category: 'academic', kind: 'vocab' },
+  { word: 'lire', translation: 'to read', category: 'academic', kind: 'vocab' },
+  { word: 'le temps', translation: 'the weather/time', category: 'daily', kind: 'vocab' },
+  { word: 'il fait beau', translation: "it's nice out", category: 'daily', kind: 'sentence' },
+  { word: 'il pleut', translation: "it's raining", category: 'daily', kind: 'sentence' },
+  { word: "j'ai faim", translation: "I'm hungry", category: 'daily', kind: 'sentence' },
+  { word: "j'ai soif", translation: "I'm thirsty", category: 'daily', kind: 'sentence' },
+  { word: 'le projet', translation: 'the project', category: 'work', kind: 'vocab' },
+  { word: "l'entreprise", translation: 'the company', category: 'work', kind: 'vocab' },
+  { word: 'le salaire', translation: 'the salary', category: 'work', kind: 'vocab' },
+  { word: 'un emploi', translation: 'a job', category: 'work', kind: 'vocab' },
+  { word: 'le week-end', translation: 'the weekend', category: 'daily', kind: 'vocab' },
+  { word: 'faire du sport', translation: 'to exercise', category: 'daily', kind: 'sentence' },
+  { word: 'le cinéma', translation: 'the cinema', category: 'daily', kind: 'vocab' },
+  { word: 'la musique', translation: 'music', category: 'daily', kind: 'vocab' },
+  { word: 'jouer', translation: 'to play', category: 'daily', kind: 'vocab' },
+  { word: 'acheter', translation: 'to buy', category: 'daily', kind: 'vocab' },
+  { word: 'le marché', translation: 'the market', category: 'daily', kind: 'vocab' },
+  { word: 'la boulangerie', translation: 'the bakery', category: 'daily', kind: 'vocab' },
+  { word: 'le médecin', translation: 'the doctor', category: 'daily', kind: 'vocab' },
+  { word: 'la pharmacie', translation: 'the pharmacy', category: 'daily', kind: 'vocab' },
+  { word: 'se lever', translation: 'to get up', category: 'daily', kind: 'vocab' },
+  { word: 'se coucher', translation: 'to go to bed', category: 'daily', kind: 'vocab' },
+  { word: 'le petit-déjeuner', translation: 'breakfast', category: 'daily', kind: 'vocab' },
+  { word: 'le déjeuner', translation: 'lunch', category: 'daily', kind: 'vocab' },
+  { word: 'le dîner', translation: 'dinner', category: 'daily', kind: 'vocab' },
+  { word: 'la chambre', translation: 'the room', category: 'travel', kind: 'vocab' },
+  { word: 'réserver', translation: 'to reserve', category: 'travel', kind: 'vocab' },
+  { word: 'le passeport', translation: 'the passport', category: 'travel', kind: 'vocab' },
+  { word: 'la douane', translation: 'customs', category: 'travel', kind: 'vocab' },
+  { word: 'une application', translation: 'an app', category: 'coding', kind: 'vocab' },
+  { word: 'le serveur', translation: 'the server', category: 'coding', kind: 'vocab' },
+  { word: 'un algorithme', translation: 'an algorithm', category: 'coding', kind: 'vocab' },
+  { word: 'déboguer', translation: 'to debug', category: 'coding', kind: 'vocab' },
+  { word: 'le réseau', translation: 'the network', category: 'coding', kind: 'vocab' },
+  { word: "l'interface", translation: 'the interface', category: 'coding', kind: 'vocab' },
+  { word: 'la recherche', translation: 'research', category: 'academic', kind: 'vocab' },
+  { word: 'un cours', translation: 'a class', category: 'academic', kind: 'vocab' },
+  { word: 'le diplôme', translation: 'the degree', category: 'academic', kind: 'vocab' },
+  { word: 'la note', translation: 'the grade', category: 'academic', kind: 'vocab' },
+  { word: 'le stage', translation: 'the internship', category: 'work', kind: 'vocab' },
+  { word: 'le patron', translation: 'the boss', category: 'work', kind: 'vocab' },
+  { word: 'la pause', translation: 'the break', category: 'work', kind: 'vocab' },
+  { word: 'un entretien', translation: 'an interview', category: 'work', kind: 'vocab' },
+  { word: 'content', translation: 'happy', category: 'social', kind: 'vocab' },
+  { word: 'triste', translation: 'sad', category: 'social', kind: 'vocab' },
+  { word: 'fatigué', translation: 'tired', category: 'daily', kind: 'vocab' },
+];
+
+function generateTestNeurons(count: number): { neurons: Neuron[]; synapses: Synapse[] } {
+  const shuffled = [...FRENCH_VOCAB].sort(() => Math.random() - 0.5);
+  const selected = shuffled.slice(0, Math.min(count, shuffled.length));
+  const neurons: Neuron[] = selected.map((v, i) => ({
+    id: `test-${i}-${v.word.replace(/\s/g, '_')}`,
+    label: v.word,
+    type: 'soma' as const,
+    nodeKind: v.kind,
+    potential: 0.5 + Math.random() * 0.5,
+    strength: 0.15 + Math.random() * 0.85,
+    usageCount: 1 + Math.floor(Math.random() * 8),
+    category: v.category,
+    grammarDna: '',
+    isNew: i < 5,
+    lastReviewed: Date.now() - Math.floor(Math.random() * 600000),
+  }));
+  // Generate meaningful links
+  const synapses: Synapse[] = [];
+  const linkKinds: ('semantic' | 'conjugation' | 'prerequisite' | 'reactivation')[] = ['semantic', 'conjugation', 'prerequisite', 'reactivation'];
+  // Same-category links
+  const byCategory: Record<string, Neuron[]> = {};
+  neurons.forEach(n => { (byCategory[n.category] ||= []).push(n); });
+  Object.values(byCategory).forEach(group => {
+    for (let i = 0; i < group.length - 1 && i < 4; i++) {
+      synapses.push({
+        source: group[i].id,
+        target: group[i + 1].id,
+        strength: 0.3 + Math.random() * 0.7,
+        linkKind: linkKinds[Math.floor(Math.random() * linkKinds.length)],
+        isNew: i < 2,
+      });
+    }
+  });
+  // Cross-category links (sparse)
+  for (let i = 0; i < Math.min(count / 4, 12); i++) {
+    const a = neurons[Math.floor(Math.random() * neurons.length)];
+    const b = neurons[Math.floor(Math.random() * neurons.length)];
+    if (a.id !== b.id && !synapses.some(s => s.source === a.id && s.target === b.id)) {
+      synapses.push({
+        source: a.id,
+        target: b.id,
+        strength: 0.2 + Math.random() * 0.5,
+        linkKind: 'semantic',
+      });
+    }
+  }
+  return { neurons, synapses };
+}
 
 // ── Audio helpers ────────────────────────────────────────────────────────
 
@@ -69,16 +224,14 @@ function AnimatedText({ text, className, delay = 0 }: { text: string; className?
 function BlueRingLogo() {
   return (
     <motion.div
-      animate={{ scale: [1, 1.03, 1] }}
+      animate={{ scale: [1, 1.05, 1] }}
       transition={{ duration: 4.8, repeat: Infinity, ease: 'easeInOut' }}
-      className="relative w-12 h-12"
-    >
-      <img
-        src={blueRingLogo}
-        alt="Echo ring logo"
-        className="w-full h-full object-contain drop-shadow-[0_0_10px_rgba(80,110,200,0.35)]"
-      />
-    </motion.div>
+      className="relative w-10 h-10 rounded-full"
+      style={{
+        background: 'radial-gradient(circle, #000 28%, #001a66 42%, #0040dd 56%, #1a6aff 70%, #2060e0 85%, #1848b0 100%)',
+        boxShadow: '0 0 18px 4px rgba(30,80,240,0.45), 0 0 40px 8px rgba(20,60,200,0.2)',
+      }}
+    />
   );
 }
 
@@ -128,6 +281,8 @@ export default function App() {
   const [canvasResetKey, setCanvasResetKey] = useState(0);
   const [recenterNonce, setRecenterNonce] = useState(0);
   const [linkInspector, setLinkInspector] = useState<{ reason: string; detail: string; evidence: string[] } | null>(null);
+  const [showTestGen, setShowTestGen] = useState(false);
+  const [testGenCount, setTestGenCount] = useState(40);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -136,6 +291,8 @@ export default function App() {
   const completedMissionRef = useRef<number | null>(null);
   const lastAiTextRef = useRef('');
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const ttsFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ttsPlaybackSettledRef = useRef(false);
 
   const fadingTargets = useMemo(
     () =>
@@ -228,15 +385,32 @@ export default function App() {
 
   const playTtsPayload = useCallback((tts: any) => {
     if (!tts) return;
+    if (ttsPlaybackSettledRef.current) return;
 
     const fallbackText = tts?.text || lastAiTextRef.current;
+    const markSpoken = () => {
+      ttsPlaybackSettledRef.current = true;
+      if (ttsFallbackTimerRef.current) {
+        clearTimeout(ttsFallbackTimerRef.current);
+        ttsFallbackTimerRef.current = null;
+      }
+    };
+
     const speakBrowser = (text: string) => {
       if (!text || !('speechSynthesis' in window)) return;
       try {
+        markSpoken();
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'fr-FR';
         utterance.rate = 1.02;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+        const voices = window.speechSynthesis.getVoices();
+        const frenchVoice =
+          voices.find((v) => (v.lang || '').toLowerCase().startsWith('fr')) ||
+          voices.find((v) => (v.lang || '').toLowerCase().includes('fr'));
+        if (frenchVoice) utterance.voice = frenchVoice;
         window.speechSynthesis.speak(utterance);
       } catch {
         // no-op
@@ -249,10 +423,23 @@ export default function App() {
           activeAudioRef.current.pause();
           activeAudioRef.current = null;
         }
-        const mime = tts.content_type || 'audio/mp3';
+        const rawMime = (tts.content_type || 'audio/mpeg').toLowerCase();
+        const mime = rawMime.includes('mp3') ? 'audio/mpeg' : rawMime;
         const audio = new Audio(`data:${mime};base64,${tts.audio_base64}`);
+        audio.preload = 'auto';
+        audio.volume = 1;
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+        }
+        audio.onplay = () => markSpoken();
+        audio.onerror = () => speakBrowser(fallbackText);
         activeAudioRef.current = audio;
-        audio.play().catch(() => speakBrowser(fallbackText));
+        const playPromise = audio.play();
+        if (playPromise && typeof playPromise.then === 'function') {
+          playPromise.then(() => markSpoken()).catch(() => speakBrowser(fallbackText));
+        } else {
+          markSpoken();
+        }
         return;
       } catch {
         speakBrowser(fallbackText);
@@ -287,11 +474,15 @@ export default function App() {
         activeAudioRef.current.pause();
         activeAudioRef.current = null;
       }
+      if (ttsFallbackTimerRef.current) {
+        clearTimeout(ttsFallbackTimerRef.current);
+        ttsFallbackTimerRef.current = null;
+      }
       if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
       }
     };
-  }, [playTtsPayload]);
+  }, []);
 
   useEffect(() => {
     lastAiTextRef.current = lastAiText;
@@ -368,6 +559,28 @@ export default function App() {
     [missionDoneCount, missionTasks.length]
   );
 
+  // Dynamic categories from actual neuron data
+  const dynamicCategories = useMemo(() => {
+    const cats = new Set<Category>();
+    state.neurons.forEach(n => cats.add(n.category));
+    const ordered = DEFAULT_CATEGORIES.filter(c => c === 'all' || cats.has(c as Category));
+    // Add 'all' if not present
+    if (!ordered.includes('all')) ordered.unshift('all');
+    return ordered.length > 1 ? ordered : DEFAULT_CATEGORIES;
+  }, [state.neurons]);
+
+  // Test data generator
+  const handleGenerateTestData = useCallback(() => {
+    const { neurons, synapses } = generateTestNeurons(testGenCount);
+    setState(prev => ({
+      ...prev,
+      neurons: [...prev.neurons, ...neurons],
+      synapses: [...prev.synapses, ...synapses],
+    }));
+    setShowTestGen(false);
+    setRecenterNonce(n => n + 1);
+  }, [testGenCount]);
+
   useEffect(() => {
     if (missionTasks.length === 0) return;
     if (missionDoneCount < missionTasks.length) return;
@@ -401,7 +614,18 @@ export default function App() {
     if (!input.trim() || isLoading) return;
 
     setIsLoading(true);
+    ttsPlaybackSettledRef.current = false;
     triggerShootingStar();
+
+    // Expose mission context for backend AI to use
+    (window as any).__echeMissionContext = {
+      title: activeMission.title,
+      objective: activeMission.objective,
+      starter: activeMission.starter,
+      tasks: missionTasks.map(t => ({ label: t.label, done: t.done })),
+      done_count: missionDoneCount,
+      total: missionTasks.length,
+    };
 
     try {
       const newState = await analyzeInput(input, state, isFlying, inputType);
@@ -432,9 +656,10 @@ export default function App() {
       const msgs = newState.messages;
       const lastAi = [...msgs].reverse().find(m => m.role === 'ai' && !m.id.startsWith('nav-'));
       const lastUser = [...msgs].reverse().find(m => m.role === 'user');
-      if (lastUser && lastAi) {
-        showHud(lastUser.text, lastAi.text, lastAi.correctedForm || '', lastAi.analysis || null);
-      }
+        if (lastUser && lastAi) {
+          // TTS playback is handled by geminiService.ts (onTTS callback + 4s browser fallback)
+          showHud(lastUser.text, lastAi.text, lastAi.correctedForm || '', lastAi.analysis || null);
+        }
       const maybeErrorMsg = [...msgs].reverse().find(m => m.role === 'ai')?.text || '';
       const isAudioFailure = inputType === 'audio' && maybeErrorMsg.toLowerCase().startsWith('error:');
       if (isAudioFailure) {
@@ -502,6 +727,15 @@ export default function App() {
       setTextInput('');
     }
   };
+
+  const handleReplayVoice = useCallback(() => {
+    if (!lastAiText || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(lastAiText);
+    utterance.lang = 'fr-FR';
+    utterance.rate = 1.02;
+    window.speechSynthesis.speak(utterance);
+  }, [lastAiText]);
 
   // ── Voice recording ──────────────────────────────────────────────────
   const startRecording = async () => {
@@ -621,12 +855,12 @@ export default function App() {
 
   // ── Connection badge ─────────────────────────────────────────────────
   const connectionBadge = isDemoMode ? (
-    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/12 border border-blue-400/35 text-blue-600 text-[10px] uppercase tracking-widest font-bold">
+    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/15 border border-blue-400/20 text-blue-300 text-[10px] uppercase tracking-widest font-bold">
       <WifiOff size={10} />
       <span>Demo Mode</span>
     </div>
   ) : connectionStatus === 'connected' ? (
-    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/12 border border-blue-400/35 text-blue-600 text-[10px] uppercase tracking-widest font-bold">
+    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/15 border border-blue-400/20 text-blue-300 text-[10px] uppercase tracking-widest font-bold">
       <Wifi size={10} />
       <span>Live</span>
     </div>
@@ -666,7 +900,7 @@ export default function App() {
   const liveMissionObjective = (lastAnalysis?.missionHint || activeMission.objective || '').trim();
 
   return (
-    <div className="relative w-full h-screen overflow-hidden text-[#12225f] font-sans bg-[#f6f4ea]">
+    <div className="relative w-full h-screen overflow-hidden text-white font-sans bg-[#020510]">
       {/* 3D Nebula — always full screen */}
       <ErrorBoundary
         resetKey={canvasResetKey}
@@ -735,54 +969,35 @@ export default function App() {
 
       {/* UI Overlay */}
       <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-6">
-        <div className="absolute inset-0 pointer-events-none opacity-22 mix-blend-multiply" style={{ backgroundImage: 'radial-gradient(rgba(26,49,130,0.10) 0.6px, transparent 0.6px), radial-gradient(rgba(11,29,103,0.08) 0.5px, transparent 0.5px)', backgroundSize: '3px 3px, 6px 6px', backgroundPosition: '0 0, 1px 2px' }} />
+        <div className="absolute inset-0 pointer-events-none opacity-15 mix-blend-screen" style={{ backgroundImage: 'radial-gradient(rgba(100,140,255,0.08) 0.5px, transparent 0.5px), radial-gradient(rgba(80,120,200,0.05) 0.4px, transparent 0.4px)', backgroundSize: '3px 3px, 6px 6px', backgroundPosition: '0 0, 1px 2px' }} />
         {/* ── Header ─────────────────────────────────────────────── */}
         <div className="relative">
-          <div className="w-full flex flex-col gap-4 pointer-events-auto items-start">
-            <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="ml-6 bg-[#f4f0df]/85 backdrop-blur-md border border-blue-300/35 p-4 rounded-2xl shadow-[0_12px_40px_rgba(30,64,175,0.18)]"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center border border-blue-300/45 bg-[#f3efdf]">
-                  <BlueRingLogo />
-                </div>
-                <div>
-                  <h1 className="text-xl font-bold tracking-tight text-[#0d2374]">Echo</h1>
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-[#3550b2]/70 font-medium">Neural Language Lab</p>
-                </div>
-                <div className="ml-3">{connectionBadge}</div>
-              </div>
-            </motion.div>
-
+          <div className="flex flex-col gap-3 pointer-events-auto items-start max-h-[calc(100vh-14rem)] overflow-y-auto overflow-x-hidden scrollbar-hide">
             {/* Mission panel */}
             <motion.div
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.15 }}
-              className="self-start ml-6 relative overflow-hidden bg-[#f5f1e1]/80 backdrop-blur-xl border border-blue-300/45 p-5 rounded-[28px] w-[500px] max-w-[calc(100vw-3rem)] shadow-[0_16px_50px_rgba(30,64,175,0.16)]"
+              className="self-start ml-6 relative overflow-hidden bg-white/[0.07] backdrop-blur-xl border border-white/[0.14] p-5 rounded-[28px] w-[500px] max-w-[calc(100vw-3rem)] shadow-[0_16px_50px_rgba(0,0,0,0.35)]"
             >
-              <div className="absolute -right-28 -top-28 w-64 h-64 rounded-full border-[10px] border-blue-500/20" />
-              <div className="absolute -right-28 -top-28 w-64 h-64 rounded-full bg-blue-500/10 blur-3xl animate-pulse" />
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div>
                   <motion.p
                     initial={{ opacity: 0, y: 6 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="text-[32px] text-[#10246f] leading-[1.06] mt-1 font-semibold"
+                    className="text-[32px] text-white leading-[1.06] mt-1 font-semibold"
                   >
                     {activeMission.title}
                   </motion.p>
-                  <p className="text-[16px] text-[#1f347f]/82 mt-1">{liveMissionObjective}</p>
+                  <p className="text-[16px] text-white/60 mt-1">{liveMissionObjective}</p>
                 </div>
-                <div className="px-3 py-1.5 rounded-full bg-blue-500/12 border border-blue-300/45 text-base font-mono text-[#2446ab]">
+                <div className="px-3 py-1.5 rounded-full bg-blue-500/15 border border-blue-400/25 text-base font-mono text-blue-300">
                   {missionDoneCount}/{missionTasks.length}
                 </div>
               </div>
 
               <div className="mb-4">
-                <div className="w-full h-2.5 rounded-full bg-[#e3ddc9] border border-blue-200/45 overflow-hidden">
+                <div className="w-full h-2.5 rounded-full bg-white/[0.10] border border-white/[0.12] overflow-hidden">
                   <motion.div
                     initial={{ width: 0 }}
                     animate={{ width: `${missionProgressPct}%` }}
@@ -793,7 +1008,7 @@ export default function App() {
               </div>
               <button
                 onClick={() => setMissionExpanded((v) => !v)}
-                className="w-full mt-1 text-left text-sm text-[#2242aa] hover:text-[#16308e] transition-colors"
+                className="w-full mt-1 text-left text-sm text-blue-300/80 hover:text-blue-200 transition-colors"
               >
                 {missionExpanded ? 'Hide tasks' : 'Show tasks'}
               </button>
@@ -808,23 +1023,23 @@ export default function App() {
                           key={task.id}
                           className={`w-full text-left flex items-center gap-3 rounded-xl px-4 py-3 border transition-all ${
                             checked
-                              ? 'bg-blue-500/12 border-blue-300/50 text-[#15318e]'
-                              : 'bg-[#ece7d5]/70 border-blue-200/35 text-[#223a8f] hover:bg-[#f6f2e3]'
+                              ? 'bg-blue-500/15 border-blue-400/30 text-blue-200'
+                              : 'bg-white/[0.06] border-white/[0.10] text-white/70 hover:bg-white/[0.10]'
                           }`}
                         >
-                          {checked ? <CheckCircle2 size={17} className="text-[#2041a8] flex-shrink-0" /> : <Circle size={17} className="text-[#4562c0]/60 flex-shrink-0" />}
+                          {checked ? <CheckCircle2 size={17} className="text-blue-400 flex-shrink-0" /> : <Circle size={17} className="text-white/30 flex-shrink-0" />}
                           <span className="text-[16px] leading-snug">{task.label}</span>
                         </div>
                       );
                     })}
                   </div>
 
-                  <div className="mt-4 pt-3 border-t border-blue-200/50 flex items-center justify-between">
-                    <div className="text-sm text-[#2b48af]/80 flex items-center gap-1.5">
+                  <div className="mt-4 pt-3 border-t border-white/[0.12] flex items-center justify-between">
+                    <div className="text-sm text-white/50 flex items-center gap-1.5">
                       <Award size={12} className="text-yellow-300" />
                       Mission reward
                     </div>
-                    <div className="text-sm font-mono text-[#2142ad]">+{activeMission.reward} XP</div>
+                    <div className="text-sm font-mono text-blue-300">+{activeMission.reward} XP</div>
                   </div>
                 </>
               )}
@@ -834,27 +1049,51 @@ export default function App() {
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.2 }}
-              className="self-start ml-6 bg-[#f5f1e1]/80 backdrop-blur-xl border border-blue-300/35 p-3 rounded-2xl w-[500px] max-w-[calc(100vw-3rem)] shadow-[0_8px_24px_rgba(30,64,175,0.10)]"
+              className="self-start ml-6 bg-white/[0.07] backdrop-blur-xl border border-white/[0.14] rounded-2xl w-[240px] shadow-[0_8px_24px_rgba(0,0,0,0.30)] overflow-hidden"
             >
-              <div className="text-[10px] uppercase tracking-[0.16em] text-[#2a47a1]/70 font-semibold mb-2">Worlds</div>
-              <div className="flex flex-wrap gap-2">
-                {CATEGORIES.map((cat) => {
-                  const active = filterCategory === cat;
-                  return (
-                    <button
-                      key={cat}
-                      onClick={() => setFilterCategory(cat)}
-                      className={`px-3 py-1.5 rounded-full border text-xs font-semibold tracking-wide transition-all ${
-                        active
-                          ? 'bg-blue-600 text-white border-blue-600 shadow-[0_0_14px_rgba(37,76,170,0.34)]'
-                          : 'bg-[#eef2fc] text-[#26479f] border-blue-200/70 hover:bg-white'
-                      }`}
-                    >
-                      {cat === 'all' ? 'All' : cat}
-                    </button>
-                  );
-                })}
-              </div>
+              <button
+                onClick={() => setShowFilter(v => !v)}
+                className="w-full flex items-center justify-between p-4 text-left hover:bg-white/[0.04] transition-colors"
+              >
+                <span className="text-[10px] uppercase tracking-[0.18em] text-white/45 font-semibold">Worlds</span>
+                <ChevronDown size={14} className={`text-white/30 transition-transform ${showFilter ? 'rotate-180' : ''}`} />
+              </button>
+              <AnimatePresence>
+                {showFilter && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="flex flex-col gap-2.5 px-4 pb-4">
+                      {dynamicCategories.map((cat) => {
+                        const active = filterCategory === cat;
+                        const count = cat === 'all' ? state.neurons.length : state.neurons.filter(n => n.category === cat).length;
+                        return (
+                          <button
+                            key={cat}
+                            onClick={() => setFilterCategory(cat)}
+                            className={`px-4 py-3 rounded-xl border text-sm font-medium tracking-wide transition-all text-left flex items-center justify-between ${
+                              active
+                                ? 'bg-blue-500/25 text-white border-blue-400/40 shadow-[0_0_14px_rgba(59,130,246,0.25)]'
+                                : 'bg-white/[0.05] text-white/55 border-white/[0.08] hover:bg-white/[0.12] hover:text-white/80'
+                            }`}
+                          >
+                            <span className="capitalize">{cat === 'all' ? 'All' : cat}</span>
+                            {count > 0 && (
+                              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${active ? 'bg-white/15 text-white/80' : 'bg-white/[0.06] text-white/35'}`}>
+                                {count}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </motion.div>
           </div>
 
@@ -868,12 +1107,12 @@ export default function App() {
                   placeholder="Search neurons..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="bg-[#f0f3fb]/92 backdrop-blur-md border border-blue-200/55 rounded-full py-2 pl-10 pr-10 text-sm focus:outline-none focus:border-blue-500/60 transition-all w-64 text-black placeholder:text-black/45"
+                  className="bg-white/[0.08] backdrop-blur-xl border border-white/[0.14] rounded-full py-2 pl-10 pr-10 text-sm focus:outline-none focus:border-blue-400/40 transition-all w-64 text-white placeholder:text-white/35"
                 />
                 {searchQuery && (
                   <button
                     onClick={() => setSearchQuery('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#3652b7]/55 hover:text-[#1e3a8a]"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70"
                   >
                     <X size={14} />
                   </button>
@@ -882,49 +1121,128 @@ export default function App() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setIsFlying(!isFlying)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all ${
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all ${
                     isFlying
                       ? 'bg-blue-600 border-blue-600 text-white shadow-[0_0_20px_rgba(59,130,246,0.5)]'
-                      : 'bg-[#f5f1e1]/85 border-blue-200/50 text-[#2443a7] hover:bg-[#ffffff]'
+                      : 'bg-white/[0.08] border-white/[0.14] text-white/50 hover:bg-white/[0.14] hover:text-white/70'
                   }`}
-                  title="Toggle Interstellar Flight"
+                  title="Navigation"
                 >
                   <Plane size={18} className={isFlying ? 'animate-bounce' : ''} />
-                  <span className="text-xs font-bold uppercase tracking-widest">
-                    {isFlying ? 'In Flight' : 'Navigation'}
-                  </span>
                 </button>
                 <button
                   onClick={() => setShowChat(!showChat)}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-full border transition-all ${
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all ${
                     showChat
-                      ? 'bg-blue-500/18 border-blue-400/40 text-[#2142ad]'
-                      : 'bg-[#f5f1e1]/85 border-blue-200/50 text-[#2443a7] hover:bg-[#ffffff]'
+                      ? 'bg-blue-500/20 border-blue-400/30 text-blue-200'
+                      : 'bg-white/[0.08] border-white/[0.14] text-white/50 hover:bg-white/[0.14] hover:text-white/70'
                   }`}
+                  title="Chat"
                 >
                   <MessageSquare size={16} />
-                  <span className="text-xs font-bold uppercase tracking-widest">Chat</span>
                 </button>
                 <button
                   onClick={handleRecenter}
-                  className="flex items-center gap-2 px-3 py-2 rounded-full border transition-all bg-[#f5f1e1]/85 border-blue-200/50 text-[#2443a7] hover:bg-[#ffffff]"
-                  title="Recenter graph layout"
+                  className="w-10 h-10 rounded-xl flex items-center justify-center border transition-all bg-white/[0.08] border-white/[0.14] text-white/50 hover:bg-white/[0.14] hover:text-white/70"
+                  title="Recenter"
                 >
                   <LocateFixed size={16} />
-                  <span className="text-xs font-bold uppercase tracking-widest">Recenter</span>
                 </button>
                 <button
                   onClick={handleReset}
-                  className="flex items-center gap-2 px-3 py-2 rounded-full border transition-all bg-[#f5f1e1]/85 border-blue-200/50 text-[#2443a7] hover:bg-red-100 hover:border-red-300 hover:text-red-500"
-                  title="Hard Reset — delete all learned words for this session"
+                  className="w-10 h-10 rounded-xl flex items-center justify-center border transition-all bg-white/[0.08] border-white/[0.14] text-white/50 hover:bg-red-500/20 hover:border-red-400/30 hover:text-red-300"
+                  title="Hard Reset"
                 >
                   <Trash2 size={16} />
-                  <span className="text-xs font-bold uppercase tracking-widest">Hard Reset</span>
                 </button>
+                <div className="relative">
+                  <button
+                    onClick={() => setShowTestGen(v => !v)}
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all ${
+                      showTestGen
+                        ? 'bg-purple-500/25 border-purple-400/40 text-purple-300 shadow-[0_0_14px_rgba(168,85,247,0.3)]'
+                        : 'bg-white/[0.08] border-white/[0.14] text-white/50 hover:bg-white/[0.14] hover:text-white/70'
+                    }`}
+                    title="Test Data Generator"
+                  >
+                    <FlaskConical size={18} />
+                  </button>
+                  <AnimatePresence>
+                    {showTestGen && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.9, y: -10 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.9, y: -10 }}
+                        className="absolute right-0 top-12 w-[300px] bg-black/70 backdrop-blur-2xl border border-white/[0.12] rounded-2xl p-5 shadow-[0_16px_50px_rgba(0,0,0,0.5)] z-50"
+                      >
+                        <div className="flex items-center gap-2 mb-3">
+                          <FlaskConical size={16} className="text-purple-400" />
+                          <span className="text-sm font-bold uppercase tracking-wider text-white/90">Test Data Generator</span>
+                        </div>
+                        <p className="text-xs text-white/40 mb-4">
+                          Generate realistic French neurons across multiple categories.
+                        </p>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] uppercase tracking-widest text-white/50 font-bold">Neuron Count</span>
+                          <span className="text-sm font-mono font-bold text-purple-300">{testGenCount}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={5}
+                          max={100}
+                          value={testGenCount}
+                          onChange={e => setTestGenCount(Number(e.target.value))}
+                          className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer mb-2 accent-purple-500"
+                        />
+                        <div className="flex justify-between text-[10px] text-white/30 mb-3">
+                          <span>5</span>
+                          <span>100 (max)</span>
+                        </div>
+                        <div className="flex gap-2 mb-4">
+                          {[10, 20, 50, 100].map(n => (
+                            <button
+                              key={n}
+                              onClick={() => setTestGenCount(n)}
+                              className={`flex-1 py-1.5 rounded-lg border text-xs font-bold transition-all ${
+                                testGenCount === n
+                                  ? 'bg-purple-500/20 border-purple-400/30 text-purple-300'
+                                  : 'bg-white/[0.05] border-white/[0.08] text-white/40 hover:bg-white/[0.10]'
+                              }`}
+                            >
+                              {n}
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          onClick={handleGenerateTestData}
+                          className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-sm uppercase tracking-wider transition-all shadow-[0_0_20px_rgba(168,85,247,0.3)] hover:shadow-[0_0_30px_rgba(168,85,247,0.5)]"
+                        >
+                          <span className="flex items-center justify-center gap-2">
+                            <Sparkles size={14} />
+                            Generate Nebula
+                          </span>
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               </div>
             </div>
           </div>
         </div>
+
+        {/* ── Logo (bottom-left) ────────────────────────────────────── */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="absolute bottom-6 left-6 pointer-events-auto flex items-center gap-3 bg-white/[0.05] backdrop-blur-xl border border-white/[0.10] px-4 py-3 rounded-2xl shadow-[0_8px_24px_rgba(0,0,0,0.30)]"
+        >
+          <BlueRingLogo />
+          <div>
+            <h1 className="text-base font-bold tracking-tight text-white">Echo</h1>
+            <p className="text-[9px] uppercase tracking-[0.2em] text-white/40 font-medium">Neural Language Lab</p>
+          </div>
+        </motion.div>
 
         {/* ── Central Voice HUD (bottom center) ─────────────────────── */}
         <div className="flex justify-center items-end pointer-events-auto">
@@ -938,15 +1256,15 @@ export default function App() {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 10, scale: 0.95 }}
                   transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                  className="w-full bg-[#edf2fb]/94 backdrop-blur-xl border border-blue-200/65 rounded-2xl p-4 shadow-[0_18px_38px_rgba(37,76,170,0.20)]"
+                  className="w-full bg-white/[0.07] backdrop-blur-xl border border-white/[0.14] rounded-2xl p-4 shadow-[0_18px_38px_rgba(0,0,0,0.35)]"
                 >
                   {/* User text */}
                   {lastUserText && (
                     <div className="flex items-start gap-3 mb-3">
-                      <div className="w-6 h-6 rounded-md bg-blue-500/12 border border-blue-300/60 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <User size={12} className="text-[#2850ad]" />
+                      <div className="w-6 h-6 rounded-md bg-blue-500/15 border border-blue-400/25 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <User size={12} className="text-blue-300" />
                       </div>
-                      <div className="text-[17px] text-[#183477] leading-snug">
+                      <div className="text-[17px] text-white/90 leading-snug">
                         <AnimatedText text={lastUserText} />
                       </div>
                     </div>
@@ -960,9 +1278,9 @@ export default function App() {
                       transition={{ delay: 0.2 }}
                       className="flex items-start gap-3 mb-3 ml-9"
                     >
-                      <div className="text-[14px] text-[#2b4587]/85 italic">
-                        <span className="text-[11px] uppercase tracking-widest font-bold mr-2 text-[#3357ad]/75">Correction</span>
-                        <AnimatedText text={lastCorrection} delay={0.15} className="text-[#2e4d98]/95" />
+                      <div className="text-[14px] text-white/70 italic">
+                        <span className="text-[11px] uppercase tracking-widest font-bold mr-2 text-amber-400/80">Correction</span>
+                        <AnimatedText text={lastCorrection} delay={0.15} className="text-amber-200/90" />
                       </div>
                     </motion.div>
                   )}
@@ -970,10 +1288,10 @@ export default function App() {
                   {/* AI response */}
                   {lastAiText && (
                     <div className="flex items-start gap-3 mb-3">
-                      <div className="w-6 h-6 rounded-md bg-blue-500/8 border border-blue-200/60 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <Bot size={12} className="text-[#3a59ad]" />
+                      <div className="w-6 h-6 rounded-md bg-blue-500/10 border border-blue-400/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <Bot size={12} className="text-blue-300" />
                       </div>
-                      <div className="text-[17px] text-[#1d3775] leading-snug">
+                      <div className="text-[17px] text-white/80 leading-snug">
                         <AnimatedText text={lastAiText} delay={0.4} />
                       </div>
                     </div>
@@ -985,7 +1303,7 @@ export default function App() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       transition={{ delay: 0.8 }}
-                      className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-blue-200/55"
+                      className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-white/[0.12]"
                     >
                       {(() => {
                         const allUnits = (lastAnalysis.acceptedUnits?.length
@@ -997,13 +1315,13 @@ export default function App() {
                             {shown.map((unit, i) => (
                               <span
                                 key={`${unit}-${i}`}
-                                className="text-[12px] px-2.5 py-1 rounded-full border bg-blue-500/10 border-blue-300/60 text-[#264a9f]"
+                                className="text-[12px] px-2.5 py-1 rounded-full border bg-blue-500/15 border-blue-400/25 text-blue-200"
                               >
                                 {unit}
                               </span>
                             ))}
                             {allUnits.length > shown.length && (
-                              <span className="text-[12px] px-2.5 py-1 rounded-full border bg-[#dfe8fb] border-blue-200/80 text-[#2d4687]">
+                              <span className="text-[12px] px-2.5 py-1 rounded-full border bg-white/[0.08] border-white/[0.14] text-white/60">
                                 +{allUnits.length - shown.length}
                               </span>
                             )}
@@ -1011,7 +1329,7 @@ export default function App() {
                         );
                       })()}
                       {lastAnalysis.level && (
-                        <span className="text-[11px] px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-300/60 text-[#2f54ad] font-mono font-bold ml-auto">
+                        <span className="text-[11px] px-2.5 py-1 rounded-full bg-blue-500/15 border border-blue-400/25 text-blue-300 font-mono font-bold ml-auto">
                           {lastAnalysis.level}
                         </span>
                       )}
@@ -1023,7 +1341,7 @@ export default function App() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       transition={{ delay: 1.1 }}
-                      className="text-[13px] text-[#35508f]/90 italic mt-2 pt-2 border-t border-blue-200/45"
+                      className="text-[13px] text-white/50 italic mt-2 pt-2 border-t border-white/[0.10]"
                     >
                       {lastAnalysis?.progress}
                     </motion.div>
@@ -1055,14 +1373,23 @@ export default function App() {
                 onChange={(e) => setTextInput(e.target.value)}
                 placeholder={isDemoMode ? "Type or tap mic..." : "Type in French..."}
                 disabled={isLoading || demoComplete}
-                className="flex-1 bg-[#f0f3fb]/92 backdrop-blur-md border border-blue-200/55 rounded-full px-4 py-2.5 text-sm text-black placeholder:text-black/45 focus:outline-none focus:border-blue-500/60 transition-all disabled:opacity-50"
+                className="flex-1 bg-white/[0.08] backdrop-blur-xl border border-white/[0.14] rounded-full px-4 py-2.5 text-sm text-white placeholder:text-white/35 focus:outline-none focus:border-blue-400/40 transition-all disabled:opacity-50"
               />
               <button
                 type="submit"
                 disabled={isLoading || !textInput.trim() || demoComplete}
-                className="px-3.5 py-2.5 bg-blue-100/90 border border-blue-300/70 rounded-full text-blue-700 hover:bg-blue-200/95 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                className="px-3.5 py-2.5 bg-white/[0.08] border border-white/[0.14] rounded-full text-white/70 hover:bg-white/[0.16] transition-all disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <Send size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={handleReplayVoice}
+                disabled={!lastAiText}
+                className="px-3.5 py-2.5 bg-white/[0.08] border border-white/[0.14] rounded-full text-white/70 hover:bg-white/[0.16] transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Replay agent voice"
+              >
+                <Volume2 size={16} />
               </button>
             </form>
 
@@ -1204,7 +1531,7 @@ export default function App() {
 
               <div className="space-y-4">
                 {!selectedNeuron.isShadow ? (
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-3">
                     <div>
                       <div className="flex justify-between text-xs uppercase tracking-tighter mb-1 text-white/50">
                         <span>Strength</span>
@@ -1231,35 +1558,10 @@ export default function App() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={handleVoiceToggle}
-                    disabled={isLoading || demoComplete}
-                    className={`rounded-xl p-3 text-sm transition-all flex items-center justify-center gap-2 border ${
-                      isListening ? 'bg-red-500/20 border-red-500 text-red-400 animate-pulse' : 'bg-white/5 hover:bg-white/10 border-white/10'
-                    }`}
-                  >
-                    <Mic size={14} className={isListening ? 'text-red-400' : 'text-blue-400'} />
-                    {isListening ? 'Listening...' : isDemoMode ? 'Demo Next' : 'Voice Activate'}
-                  </button>
-                  <button
-                    onClick={() => handleSend(selectedNeuron.label)}
-                    disabled={isLoading}
-                    className="bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl p-3 text-sm transition-all flex items-center justify-center gap-2"
-                  >
-                    <Zap size={14} className="text-amber-400" />
-                    Quick Pulse
-                  </button>
-                </div>
-
-                <div className="pt-4 border-t border-white/5">
-                  <div className="flex items-center gap-2 text-white/40 mb-2">
-                    <Info size={12} />
-                    <span className="text-[10px] uppercase tracking-widest font-bold">Grammar DNA</span>
-                  </div>
-                  <div className="bg-white/5 rounded-lg p-3 font-mono text-xs text-blue-400/70 border border-white/5">
-                    {selectedNeuron.grammarDna}
-                  </div>
+                {/* Category */}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[10px] uppercase tracking-widest text-white/40 font-bold">Category</span>
+                  <span className="text-sm text-blue-400 capitalize">{selectedNeuron.category}</span>
                 </div>
               </div>
             </div>

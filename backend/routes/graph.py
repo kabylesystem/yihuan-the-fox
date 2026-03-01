@@ -100,7 +100,7 @@ async def graph_nodes() -> list[dict]:
     nodes: list[dict] = []
     seen_ids: set[str] = set()
 
-    def _add_node(word: str, node_type: str, mastery: float, turn: int):
+    def _add_node(word: str, node_type: str, mastery: float, turn: int, usage_count: int = 1):
         node_id = _to_id(word)
         if not node_id or node_id in seen_ids:
             return
@@ -113,10 +113,11 @@ async def graph_nodes() -> list[dict]:
                 mastery=min(1.0, max(0.0, mastery)),
                 level=state.level,
                 turn_introduced=turn,
+                usage_count=usage_count,
             ).model_dump()
         )
 
-    # Nodes from validated_user_units accepted by strict gate only
+    # Pass 1: Collect stats across all turns
     unit_stats: dict[str, dict] = {}
     for t in state.conversation_history:
         t_data = t.model_dump()
@@ -132,22 +133,26 @@ async def graph_nodes() -> list[dict]:
                 canonical = next((u.get("canonical_key", "") for u in matched), "")
                 node_type = "sentence" if unit_kind == "chunk" or " " in word else ("grammar" if unit_kind == "pattern" else "vocab")
 
-                stat = unit_stats.get(word, {"count": 0, "sum_conf": 0.0, "first_turn": tn, "last_turn": tn, "canonical": canonical})
+                stat = unit_stats.get(word, {"count": 0, "sum_conf": 0.0, "first_turn": tn, "last_turn": tn, "canonical": canonical, "node_type": node_type, "unit_kind": unit_kind})
                 stat["count"] += 1
                 stat["sum_conf"] += float(next((u.get("confidence", 0.75) for u in matched), 0.75))
                 stat["last_turn"] = tn
                 stat["canonical"] = canonical or stat["canonical"]
+                stat["node_type"] = node_type
+                stat["unit_kind"] = unit_kind
                 unit_stats[word] = stat
 
-                avg_conf = stat["sum_conf"] / max(1, stat["count"])
-                reuse_score = min(1.0, (stat["count"] - 1) / 4)
-                recency_decay = max(0.0, 1.0 - ((state.turn - stat["last_turn"]) * 0.08))
-                learned_mastery = 0.22 + (avg_conf * 0.38) + (reuse_score * 0.30) + (recency_decay * 0.10)
-                if unit_kind == "pattern":
-                    learned_mastery += 0.05
-                history_mastery = state.mastery_scores.get(word, learned_mastery)
-                mastery = min(1.0, max(0.15, (learned_mastery * 0.65) + (history_mastery * 0.35)))
-                _add_node(word, node_type, mastery, tn)
+    # Pass 2: Create nodes with final accumulated stats
+    for word, stat in unit_stats.items():
+        avg_conf = stat["sum_conf"] / max(1, stat["count"])
+        reuse_score = min(1.0, (stat["count"] - 1) / 4)
+        recency_decay = max(0.0, 1.0 - ((state.turn - stat["last_turn"]) * 0.08))
+        learned_mastery = 0.22 + (avg_conf * 0.38) + (reuse_score * 0.30) + (recency_decay * 0.10)
+        if stat["unit_kind"] == "pattern":
+            learned_mastery += 0.05
+        history_mastery = state.mastery_scores.get(word, learned_mastery)
+        mastery = min(1.0, max(0.15, (learned_mastery * 0.65) + (history_mastery * 0.35)))
+        _add_node(word, stat["node_type"], mastery, stat["first_turn"], stat["count"])
 
     return nodes
 

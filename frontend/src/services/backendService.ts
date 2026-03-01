@@ -79,7 +79,7 @@ function mapNodeToNeuron(node: any): Neuron {
     nodeKind: kind,
     potential: node.mastery,
     strength: node.mastery,
-    usageCount: Math.max(1, Math.ceil(node.mastery * 8)),
+    usageCount: node.usage_count ?? 1,
     category: inferCategoryFromLabel(node.label, kind),
     grammarDna: node.type === 'grammar' ? 'Grammar' : node.type === 'sentence' ? 'SVO' : 'Vocab',
     isShadow: node.mastery < 0.3,
@@ -328,7 +328,7 @@ export async function sendMessage(content: string, type: 'text' | 'audio' = 'tex
     const requestId = ++requestSeq;
     const timeoutMs = type === 'audio' ? 60000 : 30000;
     pendingRequest = { resolve, reject, requestId, timeoutId: null };
-    ws.send(JSON.stringify({ type, content }));
+    ws.send(JSON.stringify({ type, content, mission_context: (window as any).__echeMissionContext || undefined }));
 
     // Per-request timeout guarded by requestId to avoid old timers cancelling new requests.
     const timeoutId = setTimeout(() => {

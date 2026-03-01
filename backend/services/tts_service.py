@@ -37,7 +37,11 @@ class TTSService:
         self._voice = "coral"
 
     async def synthesize(self, text: str) -> dict:
-        """Synthesize speech from text. Falls back to browser TTS on failure."""
+        """Synthesize speech from text.
+
+        GPT calls now go through Backboard.io, so OpenAI API quota
+        is fully available for TTS. Uses real OpenAI TTS in real mode.
+        """
         if self.mock_mode:
             return self._mock_synthesize(text)
         return await self._real_synthesize(text)

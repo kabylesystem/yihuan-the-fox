@@ -149,6 +149,9 @@ class GraphNode(BaseModel):
     turn_introduced: int = Field(
         ..., ge=1, description="Turn number when this node first appears"
     )
+    usage_count: int = Field(
+        default=1, ge=0, description="Number of turns where the user actually used this word"
+    )
 
 
 class GraphLink(BaseModel):
