@@ -557,19 +557,20 @@ export default function App() {
     const nextCompleted = missionsCompletedToday + 1;
     setMissionsCompletedToday(nextCompleted);
 
-    // Check if all daily missions are done
+    // Delay mission advance until after the overlay auto-dismisses (3s)
     const totalDaily = missionDeck.length;
-    if (nextCompleted >= totalDaily) {
-      setTimeout(() => setMascotOverlay({ type: 'daily_done' }), 3200);
-    }
+    setTimeout(() => {
+      const nextIdx = (missionIndex + 1) % missionDeck.length;
+      setMissionIndex(nextIdx);
+      setMissionDone({});
+      saveMissionProgress(nextIdx, {}, nextCompleted);
 
-    // Advance to next mission
-    const nextIdx = (missionIndex + 1) % missionDeck.length;
-    setMissionIndex(nextIdx);
-    setMissionDone({});
-
-    // Persist progress
-    saveMissionProgress(nextIdx, {}, nextCompleted);
+      if (nextCompleted >= totalDaily) {
+        setTimeout(() => setMascotOverlay({ type: 'daily_done' }), 500);
+      } else {
+        setMascotOverlay({ type: 'mission_intro', data: missionDeck[nextIdx] });
+      }
+    }, 3200);
   }, [missionDoneCount, missionTasks.length, missionIndex, activeMissionSafe, missionDeck.length, missionsCompletedToday]);
 
   // Show HUD with auto-fade
@@ -882,7 +883,9 @@ export default function App() {
       : lastLatency.total <= 4500
         ? 'text-amber-300'
         : 'text-red-300';
-  const liveMissionObjective = (lastAnalysis?.missionHint || activeMissionSafe.objective || '').trim();
+  const liveMissionObjective = (lastAnalysis?.missionHint || activeMissionSafe.objective || '')
+    .replace(/^Mission\s+[A-C][12](?:[+-])?\s*(?:[-–:])\s*/i, '')
+    .trim();
 
   return (
     <div className="relative w-full h-screen overflow-hidden text-white font-sans bg-[#020510]">
@@ -1232,8 +1235,8 @@ export default function App() {
         </motion.div>
 
         {/* ── Central Voice HUD (bottom center) ─────────────────────── */}
-        <div className="flex justify-center items-end pointer-events-auto">
-          <div className="flex flex-col items-center gap-4 max-w-xl w-full">
+        <div className="flex justify-center items-end pointer-events-auto max-h-[60vh] overflow-hidden">
+          <div className="flex flex-col items-center gap-3 max-w-xl w-full">
 
             {/* Transcript area */}
             <AnimatePresence>
@@ -1243,7 +1246,7 @@ export default function App() {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 10, scale: 0.95 }}
                   transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                  className="w-full bg-white/[0.07] backdrop-blur-xl border border-white/[0.14] rounded-2xl p-4 shadow-[0_18px_38px_rgba(0,0,0,0.35)]"
+                  className="w-full bg-white/[0.07] backdrop-blur-xl border border-white/[0.14] rounded-2xl p-4 shadow-[0_18px_38px_rgba(0,0,0,0.35)] max-h-[35vh] overflow-y-auto"
                 >
                   {/* User text */}
                   {lastUserText && (
