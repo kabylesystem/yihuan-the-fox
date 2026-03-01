@@ -17,13 +17,13 @@ class BloomBoundary extends React.Component<{ children: React.ReactNode }, { fai
 }
 
 const CATEGORY_COLORS: Record<Category, string> = {
-  work:     '#3b82f6',
-  daily:    '#ec4899',
-  travel:   '#10b981',
-  social:   '#f59e0b',
-  academic: '#8b5cf6',
-  coding:   '#00ffff',
-  other:    '#6b7280',
+  work:     '#60a5fa',
+  daily:    '#f472b6',
+  travel:   '#34d399',
+  social:   '#fbbf24',
+  academic: '#a78bfa',
+  coding:   '#22d3ee',
+  other:    '#94a3b8',
 };
 
 function ShootingStar({ onComplete }: { onComplete: () => void }) {
@@ -70,9 +70,9 @@ function NeuronNode({ neuron, onClick, isDimmed, isFocused, isNew, isHighlighted
     if (meshRef.current) {
       const time = state.clock.getElapsedTime();
       const pulse = 1 + Math.sin(time * (0.6 + neuron.potential * 0.8)) * 0.04;
-      const baseScale = neuron.type === 'soma' ? 1.4 : 0.75;
-      // Fading nodes shrink noticeably: strength 0.15→0.35, 0.5→0.55, 1.0→1.0
-      const strengthScale = 0.2 + neuron.strength * 0.8;
+      const baseScale = neuron.type === 'soma' ? 2.2 : 1.4;
+      // Fading nodes shrink slightly: strength 0.15→0.62, 0.5→0.80, 1.0→1.0
+      const strengthScale = 0.5 + neuron.strength * 0.5;
 
       let scale = pulse * baseScale * strengthScale;
       if (isFocused) scale *= 1.35;
@@ -113,19 +113,19 @@ function NeuronNode({ neuron, onClick, isDimmed, isFocused, isNew, isHighlighted
   // isHighlighted overrides dimming — force full brightness on referenced old nodes
   const effectiveDimmed = isHighlighted ? false : (isNew ? true : isDimmed);
 
-  // Emissive scales with strength² for dramatic fading contrast
-  const strengthGlow = neuron.strength * neuron.strength; // 0.15→0.02, 0.5→0.25, 1.0→1.0
+  // Emissive scales with strength for vibrant glow
+  const strengthGlow = 0.3 + neuron.strength * 0.7; // 0.15→0.41, 0.5→0.65, 1.0→1.0
   const emissiveIntensity = isNew
       ? 0.0
       : isHighlighted
-        ? 1.2 + neuron.strength * 0.8
+        ? 2.0 + neuron.strength * 1.0
         : isStreamingActive
-          ? 0.005
+          ? 0.02
           : effectiveDimmed
-            ? 0.01
+            ? 0.05
             : neuron.type === 'soma'
-              ? strengthGlow * 0.4
-              : strengthGlow * 0.16;
+              ? strengthGlow * 1.2
+              : strengthGlow * 0.8;
 
   // Grey color for new unconnected neurons; normal category color otherwise
   const displayColor = isNew ? '#1f2937' : CATEGORY_COLORS[neuron.category];
@@ -135,32 +135,41 @@ function NeuronNode({ neuron, onClick, isDimmed, isFocused, isNew, isHighlighted
   return (
     <group position={[neuron.x || 0, neuron.y || 0, neuron.z || 0]}>
       <mesh ref={meshRef} onClick={onClick}>
-        <sphereGeometry args={[0.15, 16, 16]} />
+        <sphereGeometry args={[0.3, 24, 24]} />
         <meshStandardMaterial
           color={displayColor}
           emissive={emissiveColor}
           emissiveIntensity={emissiveIntensity}
-          metalness={isHighlighted ? 0.1 : 0.4}
-          roughness={isHighlighted ? 0.2 : 0.6}
+          metalness={isHighlighted ? 0.05 : 0.2}
+          roughness={isHighlighted ? 0.15 : 0.4}
         />
       </mesh>
-      {/* Point light halo for highlighted nodes — bioluminescent bloom source */}
+      {/* Ambient glow on every node — colored aura */}
+      {!isNew && !effectiveDimmed && (
+        <pointLight
+          color={CATEGORY_COLORS[neuron.category]}
+          intensity={strengthGlow * 2}
+          distance={2.0}
+          decay={2}
+        />
+      )}
+      {/* Bright halo for highlighted nodes — bioluminescent bloom source */}
       {isHighlighted && (
         <pointLight
           color={CATEGORY_COLORS[neuron.category]}
-          intensity={6}
-          distance={3.5}
+          intensity={10}
+          distance={5}
           decay={2}
         />
       )}
       <Text
-        position={[0, 0.35, 0]}
-        fontSize={0.1}
+        position={[0, 0.55, 0]}
+        fontSize={0.16}
         color="white"
         anchorX="center"
         anchorY="middle"
-        maxWidth={2.5}
-        fillOpacity={isNew ? 0.04 : isHighlighted ? 1.0 : isStreamingActive ? 0.06 : effectiveDimmed ? 0.1 : Math.max(0.15, neuron.strength)}
+        maxWidth={3}
+        fillOpacity={isNew ? 0.04 : isHighlighted ? 1.0 : isStreamingActive ? 0.06 : effectiveDimmed ? 0.15 : Math.max(0.3, neuron.strength)}
       >
         {neuron.label}
       </Text>
@@ -528,7 +537,7 @@ export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick,
 
         <BloomBoundary>
           <EffectComposer>
-            <Bloom luminanceThreshold={0.1} luminanceSmoothing={0.9} height={300} intensity={1.5} />
+            <Bloom luminanceThreshold={0.05} luminanceSmoothing={0.8} height={400} intensity={2.5} />
           </EffectComposer>
         </BloomBoundary>
 

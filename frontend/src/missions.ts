@@ -70,6 +70,24 @@ export const SUPPORTED_LANGUAGES: SupportedLanguage[] = [
 // units from the AI, not by matching hardcoded words in any specific language.
 
 export const MISSION_POOL: MissionDef[] = [
+  // -- Food (easy, universal, always first) --
+  {
+    id: 'food_like',
+    title: 'Foodie Confessions',
+    objective: 'Talk about food you love — name dishes, flavors, or drinks.',
+    humor: 'Food is the universal language.',
+    mainTask: 'Name a food or drink you like.',
+    keywords: [],
+  },
+  {
+    id: 'food_order',
+    title: 'Table for One, Please!',
+    objective: 'Order something at a restaurant or cafe.',
+    humor: 'Menu decoding: activated.',
+    mainTask: 'Order food or a drink.',
+    keywords: [],
+  },
+
   // -- Identity --
   {
     id: 'id_name',
@@ -85,24 +103,6 @@ export const MISSION_POOL: MissionDef[] = [
     objective: 'Say where you are from or where you live.',
     humor: 'Geography class, multilingual edition.',
     mainTask: 'Say where you live or where you are from.',
-    keywords: [],
-  },
-
-  // -- Food --
-  {
-    id: 'food_like',
-    title: 'Foodie Confessions',
-    objective: 'Talk about a food you love and why.',
-    humor: 'Food is the universal language.',
-    mainTask: 'Mention a food you like.',
-    keywords: [],
-  },
-  {
-    id: 'food_order',
-    title: 'Table for One, Please!',
-    objective: 'Order something at a restaurant or cafe.',
-    humor: 'Menu decoding: activated.',
-    mainTask: 'Order food or a drink.',
     keywords: [],
   },
 
@@ -235,10 +235,10 @@ export function getDailyMissions(
   const count = Math.max(1, Math.floor(dailyMinutes / 5));
 
   const starterMissionIds = new Set([
-    'id_name',
-    'id_origin',
     'food_like',
     'food_order',
+    'id_name',
+    'id_origin',
     'daily_morning',
     'daily_today',
     'people_family',
@@ -251,34 +251,32 @@ export function getDailyMissions(
     ? MISSION_POOL.filter((def) => starterMissionIds.has(def.id))
     : MISSION_POOL;
 
-  // Deterministic shuffle by today's date
+  // Always put food_like first (easiest, most universal)
+  const first = sourcePool.find((d) => d.id === 'food_like');
+  const rest = sourcePool.filter((d) => d.id !== 'food_like');
+
+  // Deterministic shuffle for the rest
   const rand = mulberry32(dateSeed());
-  const pool = [...sourcePool];
-  for (let i = pool.length - 1; i > 0; i--) {
+  for (let i = rest.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
+    [rest[i], rest[j]] = [rest[j], rest[i]];
   }
 
+  const pool = first ? [first, ...rest] : rest;
   const selected = pool.slice(0, Math.min(count, pool.length));
 
   return selected.map((def, idx) => {
     const detailLabel =
       learnerLevel === 'starter'
-        ? 'Add one short detail.'
+        ? 'Add a short detail about it.'
         : learnerLevel === 'advanced'
           ? 'Add two details and connect them.'
-          : 'Add a detail or reason.';
+          : 'Add a detail or reason why.';
 
     const fadingWord = fadingTargets[idx % Math.max(1, fadingTargets.length)] || '';
     const reuseLabel = fadingWord
-      ? learnerLevel === 'advanced'
-        ? `Reuse this fading word and add an example: "${fadingWord}".`
-        : learnerLevel === 'starter'
-          ? `Reuse this fading word once: "${fadingWord}".`
-          : `Reuse this fading word: "${fadingWord}".`
-      : learnerLevel === 'advanced'
-        ? 'Reuse one old word and expand with an example.'
-        : 'Reuse one word you learned before.';
+      ? `Use the word "${fadingWord}" in your answer.`
+      : 'Use a word you learned before.';
 
     return {
       id: def.id,
@@ -298,6 +296,21 @@ export function getDailyMissions(
 
 // ── evaluateMissionTask ────────────────────────────────────────────────────
 
+// Common greetings/filler — these alone should NOT satisfy a task
+const GREETING_ONLY = new Set([
+  'salut', 'bonjour', 'bonsoir', 'coucou', 'hello', 'hi', 'hey',
+  'oui', 'non', 'ok', 'okay', 'd\'accord', 'merci', 'allons-y',
+  'ça va', 'ca va', 'bien', 'très bien', 'super', 'cool',
+]);
+
+function isGreetingOnly(text: string): boolean {
+  const clean = (text || '').toLowerCase().replace(/[.,!?'"]+/g, '').trim();
+  if (!clean) return true;
+  // Check if every word is a greeting/filler
+  const words = clean.split(/\s+/);
+  return words.every((w) => GREETING_ONLY.has(w) || w.length <= 1);
+}
+
 export function evaluateMissionTask(
   taskId: string,
   mission: MissionWithTasks,
@@ -310,8 +323,8 @@ export function evaluateMissionTask(
   const lower = (userText || '').toLowerCase();
   const acceptedLower = acceptedUnits.map((u) => u.toLowerCase());
 
-  const containsAny = (words: string[]): boolean =>
-    words.some((w) => lower.includes(w.toLowerCase()));
+  // Reject greeting-only utterances for ALL task types
+  if (isGreetingOnly(userText)) return false;
 
   const containsTarget = (target: string): boolean => {
     const t = target.toLowerCase();
@@ -321,36 +334,24 @@ export function evaluateMissionTask(
     );
   };
 
-  // Main task: pass if we got enough accepted vocabulary units on-topic
-  // (language-agnostic — the AI validates vocabulary server-side)
+  // Main task: at least 1 accepted vocabulary unit + meaningful speech
   if (taskId.endsWith('_main')) {
-    if (mission.keywords.length > 0) {
-      return containsAny(mission.keywords);
-    }
-    // Require meaningful vocabulary output — not just 1 word
-    const unitThreshold = learnerLevel === 'starter' ? 2 : learnerLevel === 'advanced' ? 4 : 3;
-    return acceptedUnits.length >= unitThreshold && qualityScore >= 0.5;
+    // Just need SOME accepted vocab (1 unit is enough!) + quality signal
+    return acceptedUnits.length >= 1 && qualityScore >= 0.3;
   }
 
-  // Detail task: quality AND enough accepted units (harder than main)
+  // Detail task: slightly more substance
   if (taskId.endsWith('_detail')) {
-    const unitThreshold = learnerLevel === 'starter' ? 2 : learnerLevel === 'advanced' ? 4 : 3;
-    const qualityThreshold = learnerLevel === 'starter' ? 0.60 : learnerLevel === 'advanced' ? 0.75 : 0.65;
-    return acceptedUnits.length >= unitThreshold && qualityScore >= qualityThreshold;
+    return acceptedUnits.length >= 2 && qualityScore >= 0.45;
   }
 
   // Reuse task: check if any fading target appears
   if (taskId.endsWith('_reuse')) {
     if (fadingTargets.length === 0) {
-      // No fading targets yet; pass if enough accepted units (not just 1)
-      return acceptedUnits.length >= 2 && qualityScore >= 0.55;
+      // No fading targets yet → pass if any accepted unit
+      return acceptedUnits.length >= 1 && qualityScore >= 0.4;
     }
-    const reused = fadingTargets.some((t) => containsTarget(t));
-    if (!reused) return false;
-    if (learnerLevel === 'advanced') {
-      return acceptedUnits.length >= 2 || qualityScore >= 0.7;
-    }
-    return true;
+    return fadingTargets.some((t) => containsTarget(t));
   }
 
   return false;
