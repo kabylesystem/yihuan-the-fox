@@ -694,19 +694,22 @@ export function MascotOverlay(props: MascotOverlayProps) {
         h(
           'div',
           { className: 'w-full grid grid-cols-3 gap-2.5 mt-2 max-h-[320px] overflow-y-auto pr-1' },
-          ...SUPPORTED_LANGUAGES.map((lang) =>
-            h(
+          ...SUPPORTED_LANGUAGES.map((lang) => {
+            const isFr = lang.code === 'fr';
+            return h(
               'button',
               {
                 key: lang.code,
-                onClick: () => onSelectLanguage?.(lang.code),
-                className:
-                  'flex flex-col items-center gap-1 rounded-2xl border border-white/15 bg-white/5 hover:bg-white/10 px-2 py-3 transition-all',
+                onClick: isFr ? () => onSelectLanguage?.(lang.code) : undefined,
+                disabled: !isFr,
+                className: isFr
+                  ? 'flex flex-col items-center gap-1 rounded-2xl border border-white/15 bg-white/5 hover:bg-white/10 px-2 py-3 transition-all'
+                  : 'flex flex-col items-center gap-1 rounded-2xl border border-white/10 bg-white/[0.02] px-2 py-3 opacity-30 cursor-not-allowed',
               },
               h('span', { className: 'text-2xl' }, lang.flag),
-              h('span', { className: 'text-xs font-semibold text-white' }, lang.native),
-            ),
-          ),
+              h('span', { className: isFr ? 'text-xs font-semibold text-white' : 'text-xs font-semibold text-white/40' }, lang.native),
+            );
+          }),
         ),
       );
     } else if (onboardingStep === 3) {
