@@ -39,24 +39,83 @@ function normalizeToken(s: string): string {
 
 function inferCategoryFromLabel(label: string, nodeKind: NodeKind): Category {
   const t = normalizeToken(label);
-  if (!t) return 'other';
+  if (!t) return 'social';
   if (nodeKind === 'grammar') return 'academic';
 
-  const social = ['bonjour', 'salut', 'ca va', 'comment ca va', 'merci', 'au revoir', "je m'appelle", 'mon prenom'];
-  const travel = ['hotel', 'gare', 'aeroport', 'voyage', 'train', 'metro', 'bus', 'avion', 'ticket', 'paris', 'ville', 'pays'];
-  const work = ['travail', 'bureau', 'reunion', 'projet', 'client', 'manager', 'job', 'metier', 'collegue', 'entreprise'];
-  const coding = ['code', 'coder', 'bug', 'api', 'javascript', 'python', 'git', 'frontend', 'backend', 'devops'];
-  const academic = ['ecole', 'universite', 'professeur', 'classe', 'devoir', 'examen', 'etudier', 'cours', 'grammaire'];
-  const daily = ['manger', 'boire', 'dormir', 'famille', 'maison', 'cuisine', 'sport', "j'aime", "j'ai envie", "j'habite", "je suis"];
+  const social = [
+    'bonjour', 'salut', 'ca va', 'comment ca va', 'merci', 'au revoir',
+    "je m'appelle", 'mon prenom', 'bonsoir', 'coucou', 'bienvenue',
+    'excusez', 'pardon', 'enchante', 'plaisir', 'ami', 'amie', 'copain',
+    'copine', 'ensemble', 'rencontr', 'parler', 'discuter', 'dire',
+    'repondre', 'demander', 'aider', 'partager', 'fete', 'cadeau',
+    'anniversaire', 'invitation', 'bisou', 'calin',
+  ];
+  const travel = [
+    'hotel', 'gare', 'aeroport', 'voyage', 'train', 'metro', 'bus',
+    'avion', 'ticket', 'paris', 'ville', 'pays', 'plage', 'montagne',
+    'camping', 'vacances', 'touriste', 'carte', 'valise', 'passeport',
+    'voiture', 'velo', 'route', 'chemin', 'musee', 'monument',
+    'restaurant', 'marche', 'bateau', 'ile', 'lac', 'mer', 'ocean',
+    'nord', 'sud', 'est', 'ouest', 'france', 'europe', 'monde',
+  ];
+  const work = [
+    'travail', 'bureau', 'reunion', 'projet', 'client', 'manager',
+    'job', 'metier', 'collegue', 'entreprise', 'salaire', 'patron',
+    'emploi', 'carriere', 'professionnel', 'ordinateur', 'email',
+    'telephone', 'contrat', 'equipe',
+  ];
+  const academic = [
+    'ecole', 'universite', 'professeur', 'classe', 'devoir', 'examen',
+    'etudier', 'cours', 'grammaire', 'verbe', 'conjugaison', 'lecon',
+    'apprendre', 'comprendre', 'lire', 'ecrire', 'livre', 'cahier',
+    'stylo', 'eleve', 'etudiant', 'diplome', 'science', 'histoire',
+    'math', 'langue', 'francais',
+  ];
+  const daily = [
+    'manger', 'boire', 'dormir', 'famille', 'maison', 'cuisine',
+    'sport', "j'aime", "j'ai envie", "j'habite", "je suis", "je veux",
+    "je peux", "il faut", 'petit dejeuner', 'dejeuner', 'diner',
+    'repas', 'nourriture', 'pain', 'fromage', 'poulet', 'poisson',
+    'viande', 'legume', 'fruit', 'pomme', 'banane', 'orange', 'salade',
+    'soupe', 'gateau', 'chocolat', 'cafe', 'the', 'eau', 'lait', 'jus',
+    'vin', 'biere', 'sucre', 'sel', 'riz', 'pate', 'pizza', 'sandwich',
+    'croissant', 'baguette', 'beurre', 'oeuf', 'tomate', 'carotte',
+    'oignon', 'pomme de terre', 'glace', 'creme', 'dessert', 'appetit',
+    'faim', 'soif', 'delicieux', 'bon', 'matin', 'soir', 'nuit',
+    'jour', 'semaine', 'weekend', 'aujourd', 'demain', 'hier',
+    'maintenant', 'toujours', 'souvent', 'parfois', 'jamais',
+    'heure', 'minute', 'temps', 'midi', 'minuit',
+    'chambre', 'salon', 'jardin', 'lit', 'douche', 'vetement',
+    'chien', 'chat', 'animal', 'couleur', 'rouge', 'bleu', 'vert',
+    'jaune', 'blanc', 'noir', 'grand', 'petit', 'beau', 'belle',
+    'nouveau', 'vieux', 'jeune', 'content', 'heureux', 'triste',
+    'fatigue', 'malade', 'chaud', 'froid', 'soleil', 'pluie', 'neige',
+    'musique', 'film', 'jouer', 'marcher', 'courir', 'nager',
+    'danser', 'chanter', 'cuisiner', 'acheter', 'vouloir', 'pouvoir',
+    'savoir', 'connaitre', 'aller', 'venir', 'faire', 'prendre',
+    'donner', 'regarder', 'ecouter', 'aimer', 'adorer', 'preferer',
+    'detester', 'penser', 'croire', 'essayer', 'commencer', 'finir',
+    'attendre', 'chercher', 'trouver', 'ouvrir', 'fermer', 'porter',
+    'mettre', 'voir', 'entendre', 'sentir', 'toucher', 'gouter',
+    'aussi', 'tres', 'beaucoup', 'peu', 'trop', 'assez', 'bien',
+    'mal', 'vite', 'lent', 'ici', 'la', 'avec', 'sans', 'pour',
+    'dans', 'sur', 'sous', 'entre', 'avant', 'apres', 'pendant',
+    'depuis', 'pendant', 'nombre', 'argent', 'prix', 'magasin',
+    'pere', 'mere', 'frere', 'soeur', 'fils', 'fille', 'enfant',
+    'parent', 'mari', 'femme', 'bebe',
+  ];
 
   const hasAny = (list: string[]) => list.some((w) => t.includes(w));
-  if (hasAny(coding)) return 'coding';
   if (hasAny(work)) return 'work';
   if (hasAny(travel)) return 'travel';
   if (hasAny(academic)) return 'academic';
-  if (hasAny(social)) return 'social';
   if (hasAny(daily)) return 'daily';
-  return 'other';
+  if (hasAny(social)) return 'social';
+
+  // Distribute uncategorized words across colorful categories by hash
+  const hash = t.split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
+  const colorfulCats: Category[] = ['daily', 'social', 'travel', 'academic'];
+  return colorfulCats[Math.abs(hash) % colorfulCats.length];
 }
 
 function mapNodeToNeuron(node: any): Neuron {
