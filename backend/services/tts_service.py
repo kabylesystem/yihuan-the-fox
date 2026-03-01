@@ -105,7 +105,7 @@ class TTSService:
         voice = _SPEECHMATICS_VOICE_MAP.get(self._language, "zoe")
         url = _SPEECHMATICS_TTS_URL.format(voice=voice)
         headers = {"Authorization": f"Bearer {self._speechmatics_api_key}"}
-        payload = {"text": text[:500]}  # cap to avoid oversized requests
+        payload = {"text": text[:500], "language": self._language}  # language required!
 
         for attempt in range(2):  # try twice — network hiccups happen
             try:
