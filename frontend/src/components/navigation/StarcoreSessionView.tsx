@@ -13,6 +13,8 @@ interface StarcoreSessionViewProps {
   branch: FlightModeBranch;
   targetLabel?: string;
   onBack: () => void;
+  onSessionStart?: () => void;
+  onSessionComplete?: () => void;
 }
 
 function buildInitialMessages(branch: FlightModeBranch, targetLabel?: string): SessionMessage[] {
@@ -50,12 +52,19 @@ function buildInitialMessages(branch: FlightModeBranch, targetLabel?: string): S
   ];
 }
 
-export function StarcoreSessionView({ branch, targetLabel, onBack }: StarcoreSessionViewProps) {
+export function StarcoreSessionView({
+  branch,
+  targetLabel,
+  onBack,
+  onSessionStart,
+  onSessionComplete,
+}: StarcoreSessionViewProps) {
   const [messages, setMessages] = useState<SessionMessage[]>(() => buildInitialMessages(branch, targetLabel));
   const [input, setInput] = useState('');
   const [isResponding, setIsResponding] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const userTurnCount = useMemo(() => messages.filter((m) => m.role === 'user').length, [messages]);
 
   const sessionTitle = useMemo(
     () => (branch === 'explore' ? 'Frontier Expansion Session' : 'Memory Recalibration Session'),
@@ -68,6 +77,10 @@ export function StarcoreSessionView({ branch, targetLabel, onBack }: StarcoreSes
     setIsResponding(false);
     setIsListening(false);
   }, [branch, targetLabel]);
+
+  useEffect(() => {
+    onSessionStart?.();
+  }, [onSessionStart, branch, targetLabel]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -103,6 +116,13 @@ export function StarcoreSessionView({ branch, targetLabel, onBack }: StarcoreSes
       setIsListening(false);
       sendUserMessage(branch === 'explore' ? 'I went to the park to relax after work.' : 'I reviewed this phrase again and used it in my own sentence.');
     }, 900);
+  };
+
+  const canCompleteRelight = branch === 'relight' && userTurnCount >= 2 && !isResponding;
+
+  const handleCompleteRelight = () => {
+    if (!canCompleteRelight) return;
+    onSessionComplete?.();
   };
 
   return (
@@ -190,6 +210,16 @@ export function StarcoreSessionView({ branch, targetLabel, onBack }: StarcoreSes
             <span className="inline-flex items-center gap-2"><Mic size={14} /> Hold to Speak (Simulated)</span>
           )}
         </button>
+
+        {branch === 'relight' && (
+          <button
+            onClick={handleCompleteRelight}
+            disabled={!canCompleteRelight}
+            className="w-full h-10 rounded-xl border border-emerald-400/35 bg-emerald-500/20 text-xs uppercase tracking-[0.16em] font-semibold text-emerald-100 transition hover:bg-emerald-500/25 disabled:opacity-40"
+          >
+            Complete Relight
+          </button>
+        )}
       </div>
     </div>
   );

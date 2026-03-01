@@ -66,6 +66,10 @@ export default function App() {
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [demoComplete, setDemoComplete] = useState(false);
   const [isStarcoreSessionOpen, setIsStarcoreSessionOpen] = useState(false);
+  const [relightTargetId, setRelightTargetId] = useState<string | null>(null);
+  const [relightTargetLabel, setRelightTargetLabel] = useState<string | null>(null);
+  const [relightSessionStage, setRelightSessionStage] = useState<'idle' | 'queued' | 'active' | 'completed'>('idle');
+  const [relightGlowProgress, setRelightGlowProgress] = useState(1);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -79,7 +83,14 @@ export default function App() {
     chooseBranch,
     notifyTravelArrived,
     notifyFocusComplete,
+    returnToIdle,
   } = useFlightModeMachine(isFlying, state.neurons);
+
+  const effectiveRelightTargetId =
+    flightBranch === 'relight'
+      ? (relightTargetId ?? decayingNeuron?.id ?? null)
+      : null;
+  const relightTargetLabelForUi = relightTargetLabel ?? decayingNeuron?.label;
 
   // ── Initialize: check backend availability ───────────────────────────
   useEffect(() => {
@@ -244,6 +255,43 @@ export default function App() {
     }
   };
 
+  const resetRelightFlowState = useCallback(() => {
+    setRelightTargetId(null);
+    setRelightTargetLabel(null);
+    setRelightSessionStage('idle');
+    setRelightGlowProgress(1);
+  }, []);
+
+  const handleRelightBranch = useCallback(() => {
+    const fallbackDecaying = [...state.neurons]
+      .filter((n) => !n.isShadow && n.strength < 0.4)
+      .sort((a, b) => a.strength - b.strength)[0] ?? null;
+
+    const target = decayingNeuron ?? fallbackDecaying;
+    setRelightSessionStage('queued');
+    setRelightGlowProgress(0);
+    setRelightTargetId(target?.id ?? null);
+    setRelightTargetLabel(target?.label ?? null);
+    if (target) setSelectedNeuron(target);
+
+    chooseBranch('relight');
+  }, [state.neurons, decayingNeuron, chooseBranch]);
+
+  const handleExploreBranch = useCallback(() => {
+    resetRelightFlowState();
+    chooseBranch('explore');
+  }, [chooseBranch, resetRelightFlowState]);
+
+  const handleStarcoreSessionStart = useCallback(() => {
+    if (flightBranch !== 'relight' || !effectiveRelightTargetId) return;
+    setRelightSessionStage((prev) => (prev === 'completed' ? prev : 'active'));
+  }, [flightBranch, effectiveRelightTargetId]);
+
+  const handleStarcoreSessionComplete = useCallback(() => {
+    if (flightBranch !== 'relight' || !effectiveRelightTargetId) return;
+    setRelightSessionStage('completed');
+  }, [flightBranch, effectiveRelightTargetId]);
+
   // ── Reset session ────────────────────────────────────────────────────
   const handleReset = async () => {
     if (isUsingBackend()) {
@@ -252,6 +300,7 @@ export default function App() {
     resetMockState();
     setState(INITIAL_STATE);
     setDemoComplete(false);
+    resetRelightFlowState();
   };
 
   const handleNeuronClick = useCallback((neuron: Neuron) => {
@@ -269,11 +318,104 @@ export default function App() {
   }, [searchQuery, state.neurons]);
   const isStarcoreView = isFlying && flightPhase === 'starcoreOpen';
 
+  const abortRelightAndReturn = useCallback(() => {
+    setIsStarcoreSessionOpen(false);
+    setShowChat(false);
+    setSelectedNeuron(null);
+    resetRelightFlowState();
+    returnToIdle();
+  }, [resetRelightFlowState, returnToIdle]);
+
+  const handleCloseInfoWindow = useCallback(() => {
+    const shouldAbortRelight = isStarcoreView && flightBranch === 'relight' && relightSessionStage !== 'completed';
+    if (shouldAbortRelight) {
+      abortRelightAndReturn();
+      return;
+    }
+    if (isStarcoreView && flightBranch === 'relight') {
+      setSelectedNeuron(null);
+    }
+    setShowChat(false);
+  }, [isStarcoreView, flightBranch, relightSessionStage, abortRelightAndReturn]);
+
+  const handleSessionBack = useCallback(() => {
+    const shouldAbortRelight = flightBranch === 'relight' && relightSessionStage !== 'completed';
+    if (shouldAbortRelight) {
+      abortRelightAndReturn();
+      return;
+    }
+    setIsStarcoreSessionOpen(false);
+  }, [flightBranch, relightSessionStage, abortRelightAndReturn]);
+
   useEffect(() => {
     if (!isStarcoreView) {
       setIsStarcoreSessionOpen(false);
     }
   }, [isStarcoreView]);
+
+  useEffect(() => {
+    if (isFlying && flightPhase === 'starcoreOpen' && flightBranch === 'explore') {
+      setShowChat(true);
+    }
+  }, [isFlying, flightPhase, flightBranch]);
+
+  useEffect(() => {
+    if (!isFlying) {
+      resetRelightFlowState();
+    }
+  }, [isFlying, resetRelightFlowState]);
+
+  useEffect(() => {
+    if ((relightSessionStage === 'queued' || relightSessionStage === 'active') && effectiveRelightTargetId) {
+      setRelightGlowProgress(0);
+    }
+  }, [relightSessionStage, effectiveRelightTargetId]);
+
+  useEffect(() => {
+    if (relightSessionStage !== 'completed' || !effectiveRelightTargetId) return;
+
+    const targetId = effectiveRelightTargetId;
+    let rafId = 0;
+    const startedAt = performance.now();
+    const durationMs = 2200;
+    let finalized = false;
+
+    const animateGlow = (now: number) => {
+      const progress = Math.min(1, (now - startedAt) / durationMs);
+      setRelightGlowProgress(progress);
+      if (progress < 1) {
+        rafId = requestAnimationFrame(animateGlow);
+        return;
+      }
+
+      if (finalized) return;
+      finalized = true;
+
+      setState((prev) => ({
+        ...prev,
+        neurons: prev.neurons.map((n) =>
+          n.id === targetId
+            ? {
+                ...n,
+                strength: Math.max(n.strength, 0.88),
+                potential: Math.max(n.potential, 0.88),
+                usageCount: Math.max(n.usageCount, 1) + 1,
+                lastReviewed: Date.now(),
+              }
+            : n
+        ),
+      }));
+      setIsStarcoreSessionOpen(false);
+      setShowChat(false);
+      setSelectedNeuron(null);
+      resetRelightFlowState();
+      returnToIdle();
+    };
+
+    setRelightGlowProgress(0);
+    rafId = requestAnimationFrame(animateGlow);
+    return () => cancelAnimationFrame(rafId);
+  }, [relightSessionStage, effectiveRelightTargetId, resetRelightFlowState, returnToIdle]);
 
   // ── Connection badge ─────────────────────────────────────────────────
   const connectionBadge = isDemoMode ? (
@@ -306,6 +448,8 @@ export default function App() {
           isFlying={isFlying}
           flightPhase={flightPhase}
           flightBranch={flightBranch}
+          relightTargetId={effectiveRelightTargetId}
+          relightGlowProgress={relightGlowProgress}
           onFlightTravelArrive={notifyTravelArrived}
           onFlightFocusComplete={notifyFocusComplete}
         />
@@ -487,8 +631,8 @@ export default function App() {
           <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2">
             <FlightModeChoice
               visible={isFlying && flightPhase === 'choose'}
-              onRelight={() => chooseBranch('relight')}
-              onExplore={() => chooseBranch('explore')}
+              onRelight={handleRelightBranch}
+              onExplore={handleExploreBranch}
             />
           </div>
 
@@ -554,7 +698,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] pointer-events-auto"
+              className="absolute left-4 bottom-4 w-[400px] max-w-[calc(100%-2rem)] pointer-events-auto z-40"
             >
               <div className="bg-black/60 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-2xl overflow-hidden relative">
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-emerald-500 to-transparent opacity-50" />
@@ -643,7 +787,7 @@ export default function App() {
         </AnimatePresence>
       </div>
 
-      {/* Chat Interface (Right 1/3) */}
+      {/* Chat Interface */}
       <AnimatePresence>
         {showChat && (
           <motion.div
@@ -663,7 +807,7 @@ export default function App() {
                 <h2 className="font-bold text-lg">{isStarcoreView ? 'Starcore Console' : isFlying ? 'Neural Navigator' : 'Neural Dialogue'}</h2>
               </div>
               <button
-                onClick={() => setShowChat(false)}
+                onClick={handleCloseInfoWindow}
                 className="text-white/30 hover:text-white transition-colors"
               >
                 <X size={20} />
@@ -674,13 +818,15 @@ export default function App() {
               isStarcoreSessionOpen ? (
                 <StarcoreSessionView
                   branch={flightBranch}
-                  targetLabel={flightBranch === 'relight' ? decayingNeuron?.label : 'Frontier i+1 Sector'}
-                  onBack={() => setIsStarcoreSessionOpen(false)}
+                  targetLabel={flightBranch === 'relight' ? relightTargetLabelForUi : 'Frontier i+1 Sector'}
+                  onSessionStart={handleStarcoreSessionStart}
+                  onSessionComplete={handleStarcoreSessionComplete}
+                  onBack={handleSessionBack}
                 />
               ) : (
                 <StarcorePanel
                   branch={flightBranch}
-                  targetLabel={flightBranch === 'relight' ? decayingNeuron?.label : 'Frontier i+1 Sector'}
+                  targetLabel={flightBranch === 'relight' ? relightTargetLabelForUi : 'Frontier i+1 Sector'}
                   onOpenSession={() => setIsStarcoreSessionOpen(true)}
                 />
               )

@@ -54,7 +54,19 @@ function ShootingStar({ onComplete }: { onComplete: () => void }) {
   );
 }
 
-function NeuronNode({ neuron, onClick, isDimmed, isFocused }: { neuron: Neuron; onClick: () => void; isDimmed: boolean; isFocused?: boolean }) {
+function NeuronNode({
+  neuron,
+  onClick,
+  isDimmed,
+  isFocused,
+  relightGlowProgress,
+}: {
+  neuron: Neuron;
+  onClick: () => void;
+  isDimmed: boolean;
+  isFocused?: boolean;
+  relightGlowProgress: number | null;
+}) {
   const meshRef = useRef<THREE.Mesh>(null);
   
   useFrame((state) => {
@@ -64,11 +76,16 @@ function NeuronNode({ neuron, onClick, isDimmed, isFocused }: { neuron: Neuron; 
       let pulse = 1 + Math.sin(time * 0.8 * neuron.potential) * 0.03;
       const baseScale = neuron.type === 'soma' ? 1.2 : 0.7;
       const strengthScale = 0.5 + neuron.strength * 0.5;
+      const relightProgress = THREE.MathUtils.clamp(relightGlowProgress ?? 1, 0, 1);
+      const hasRelightOverride = relightGlowProgress !== null;
       
       // Enhanced scale when focused
       let scale = pulse * baseScale * strengthScale;
       if (isFocused) {
         scale *= 1.3; // Make focused node 30% larger
+      }
+      if (hasRelightOverride) {
+        scale *= 0.86 + relightProgress * 0.24;
       }
       
       meshRef.current.scale.setScalar(scale);
@@ -78,11 +95,24 @@ function NeuronNode({ neuron, onClick, isDimmed, isFocused }: { neuron: Neuron; 
         (meshRef.current.material as THREE.MeshStandardMaterial).opacity = 0.3;
         (meshRef.current.material as THREE.MeshStandardMaterial).transparent = true;
       } else {
-        (meshRef.current.material as THREE.MeshStandardMaterial).opacity = isDimmed ? 0.2 : 1;
-        (meshRef.current.material as THREE.MeshStandardMaterial).transparent = isDimmed;
+        const opacity = hasRelightOverride ? THREE.MathUtils.lerp(0.22, 1, relightProgress) : (isDimmed ? 0.2 : 1);
+        (meshRef.current.material as THREE.MeshStandardMaterial).opacity = opacity;
+        (meshRef.current.material as THREE.MeshStandardMaterial).transparent = isDimmed || hasRelightOverride;
       }
     }
   });
+
+  const relightProgress = THREE.MathUtils.clamp(relightGlowProgress ?? 1, 0, 1);
+  const hasRelightOverride = relightGlowProgress !== null;
+  const baseEmissive = neuron.isShadow ? 0.02 : (isDimmed ? 0.01 : 0.08 + neuron.strength * 0.12);
+  const emissiveIntensity = hasRelightOverride
+    ? THREE.MathUtils.lerp(0.01, 0.3, relightProgress)
+    : baseEmissive;
+  const textOpacity = neuron.isShadow
+    ? 0.3
+    : hasRelightOverride
+      ? THREE.MathUtils.lerp(0.15, 1, relightProgress)
+      : (isDimmed ? 0.1 : 1);
 
   return (
     <group position={[neuron.x || 0, neuron.y || 0, neuron.z || 0]}>
@@ -91,7 +121,7 @@ function NeuronNode({ neuron, onClick, isDimmed, isFocused }: { neuron: Neuron; 
         <meshStandardMaterial 
           color={CATEGORY_COLORS[neuron.category]} 
           emissive={CATEGORY_COLORS[neuron.category]}
-          emissiveIntensity={neuron.isShadow ? 0.02 : (isDimmed ? 0.01 : 0.08 + neuron.strength * 0.12)}
+          emissiveIntensity={emissiveIntensity}
           metalness={0.4}
           roughness={0.6}
         />
@@ -103,7 +133,7 @@ function NeuronNode({ neuron, onClick, isDimmed, isFocused }: { neuron: Neuron; 
         anchorX="center"
         anchorY="middle"
         maxWidth={2}
-        fillOpacity={neuron.isShadow ? 0.3 : (isDimmed ? 0.1 : 1)}
+        fillOpacity={textOpacity}
       >
         {neuron.label}
       </Text>
@@ -377,6 +407,8 @@ export function NebulaCanvas({
   isFlying,
   flightPhase,
   flightBranch,
+  relightTargetId,
+  relightGlowProgress,
   onFlightTravelArrive,
   onFlightFocusComplete,
 }: {
@@ -392,6 +424,8 @@ export function NebulaCanvas({
   isFlying: boolean;
   flightPhase: FlightModePhase;
   flightBranch: FlightModeBranch;
+  relightTargetId: string | null;
+  relightGlowProgress: number;
   onFlightTravelArrive: () => void;
   onFlightFocusComplete: () => void;
 }) {
@@ -497,6 +531,7 @@ export function NebulaCanvas({
             const decay = Math.max(0, n.strength - timePulse);
             const isDimmed = (filterCategory !== 'all' && n.category !== filterCategory) || (decay < 0.1 && !n.isShadow);
             const isFocused = focusNodeId === n.id;
+            const nodeRelightProgress = relightTargetId === n.id ? relightGlowProgress : null;
             
             return (
               <NeuronNode 
@@ -505,6 +540,7 @@ export function NebulaCanvas({
                 onClick={() => handleNeuronClick(n)} 
                 isDimmed={isDimmed}
                 isFocused={isFocused}
+                relightGlowProgress={nodeRelightProgress}
               />
             );
           })}
@@ -525,6 +561,7 @@ export function NebulaCanvas({
           branch={flightBranch}
           nodes={positionedNodes}
           searchTarget={activeSearchTarget}
+          relightTargetId={relightTargetId}
           onTravelArrive={onFlightTravelArrive}
           onFocusComplete={onFlightFocusComplete}
         />

@@ -30,7 +30,7 @@ export function FlightModeChoice({ visible, onRelight, onExplore }: FlightModeCh
               onClick={onRelight}
               className="rounded-lg border border-sky-200/25 bg-sky-500/10 px-2.5 py-1.5 text-center transition hover:border-sky-200/45 hover:bg-sky-400/15"
             >
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-sky-100">Relight</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-sky-100">Relight Nebula</p>
             </button>
           </div>
         </motion.div>

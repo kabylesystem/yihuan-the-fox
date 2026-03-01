@@ -60,6 +60,18 @@ export function useFlightModeMachine(isFlightEnabled: boolean, neurons: Neuron[]
     setPhase('starcoreOpen');
   }, []);
 
+  const returnToIdle = useCallback(() => {
+    clearTimers();
+    setBranch(null);
+    setPhase('idle');
+
+    const chooseTimer = window.setTimeout(() => {
+      setPhase('choose');
+    }, IDLE_TO_CHOOSE_DELAY);
+
+    timers.current.push(chooseTimer);
+  }, [clearTimers]);
+
   return {
     phase,
     branch,
@@ -67,5 +79,6 @@ export function useFlightModeMachine(isFlightEnabled: boolean, neurons: Neuron[]
     chooseBranch,
     notifyTravelArrived,
     notifyFocusComplete,
+    returnToIdle,
   };
 }

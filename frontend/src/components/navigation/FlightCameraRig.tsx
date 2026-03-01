@@ -11,12 +11,15 @@ interface FlightCameraRigProps {
   branch: FlightModeBranch;
   nodes: Neuron[];
   searchTarget: Neuron | null;
+  relightTargetId?: string | null;
   onTravelArrive: () => void;
   onFocusComplete: () => void;
 }
 
 const CAMERA_DEFAULT = new THREE.Vector3(0, 0, 20);
 const CAMERA_DEFAULT_LOOK = new THREE.Vector3(0, 0, 0);
+const CAMERA_WIDE = new THREE.Vector3(0, 0.1, 17.2);
+const CAMERA_WIDE_LOOK = new THREE.Vector3(0, -0.3, 0);
 const SHIP_IDLE_POS = new THREE.Vector3(0, -3.9, 8.2);
 
 function getWeakestNode(nodes: Neuron[]): Neuron | null {
@@ -39,11 +42,35 @@ function sampleBezier(start: THREE.Vector3, end: THREE.Vector3, t: number) {
   return new THREE.CubicBezierCurve3(start, control1, control2, end).getPoint(t);
 }
 
+function getNodePosition(nodes: Neuron[], nodeId?: string | null): THREE.Vector3 | null {
+  if (!nodeId) return null;
+  const node = nodes.find((n) => n.id === nodeId);
+  if (!node) return null;
+  return new THREE.Vector3(node.x ?? 0, node.y ?? 0, node.z ?? 0);
+}
+
+function getRelightDockPoint(target: THREE.Vector3): THREE.Vector3 {
+  const lateral = target.clone();
+  lateral.z = 0;
+
+  if (lateral.lengthSq() < 0.0001) {
+    lateral.set(1, 0, 0);
+  } else {
+    lateral.normalize();
+  }
+
+  return target
+    .clone()
+    .add(lateral.multiplyScalar(1.2))
+    .add(new THREE.Vector3(0, 0.5, 2.1));
+}
+
 export function FlightCameraRig({
   phase,
   branch,
   nodes,
   searchTarget,
+  relightTargetId,
   onTravelArrive,
   onFocusComplete,
 }: FlightCameraRigProps) {
@@ -75,6 +102,11 @@ export function FlightCameraRig({
         : new THREE.Vector3(0, 0, 0),
     [weakestNode]
   );
+  const relightNodePos = useMemo(
+    () => getNodePosition(nodes, relightTargetId) ?? weakestNodePos.clone(),
+    [nodes, relightTargetId, weakestNodePos]
+  );
+  const relightDockPos = useMemo(() => getRelightDockPoint(relightNodePos), [relightNodePos]);
 
   const frontierTarget = useMemo(() => getFrontierTarget(nodes), [nodes]);
 
@@ -95,12 +127,18 @@ export function FlightCameraRig({
       travelProgress.current = 0;
       hasArrived.current = false;
       hasFocused.current = false;
-      travelTarget.current = phase === 'relightTravel' ? weakestNodePos.clone() : frontierTarget.clone();
+      travelTarget.current = phase === 'relightTravel' ? relightDockPos.clone() : frontierTarget.clone();
     }
 
     if (phase === 'focus') {
       focusProgress.current = 0;
       hasFocused.current = false;
+    }
+
+    if (phase === 'starcoreOpen' && branch === 'relight') {
+      camera.position.copy(CAMERA_WIDE);
+      controls?.target.copy(CAMERA_WIDE_LOOK);
+      controls?.update();
     }
 
     if (phase === 'hidden') {
@@ -111,7 +149,7 @@ export function FlightCameraRig({
       shipPos.current.copy(SHIP_IDLE_POS);
       shipLook.current.set(0, -3.9, 2.5);
     }
-  }, [phase, weakestNodePos, frontierTarget]);
+  }, [phase, branch, camera, controls, relightDockPos, frontierTarget]);
 
   useFrame((_, delta) => {
     const isFlightActive = phase !== 'hidden';
@@ -140,14 +178,35 @@ export function FlightCameraRig({
       shipLook.current.set(0, -4.6, 2.4);
       camera.position.lerp(new THREE.Vector3(0, -0.1, 18), 0.06);
       controls?.target.lerp(new THREE.Vector3(0, -0.4, 0), 0.07);
-    } else if (phase === 'idle' || phase === 'choose' || phase === 'starcoreOpen') {
+    } else if (phase === 'idle' || phase === 'choose' || (phase === 'starcoreOpen' && branch !== 'relight')) {
       appearProgress.current = 1;
       thrust.current = 0.15;
       shipPos.current.lerp(SHIP_IDLE_POS, 0.08);
       shipLook.current.set(0, -4.6, 2.4);
-      camera.position.lerp(new THREE.Vector3(0, 0.1, 17.2), 0.05);
-      controls?.target.lerp(new THREE.Vector3(0, -0.3, 0), 0.05);
-    } else if (phase === 'relightTravel' || phase === 'exploreTravel') {
+      camera.position.lerp(CAMERA_WIDE, 0.05);
+      controls?.target.lerp(CAMERA_WIDE_LOOK, 0.05);
+    } else if (phase === 'relightTravel') {
+      const start = SHIP_IDLE_POS;
+      const end = travelTarget.current;
+      travelProgress.current = Math.min(1, travelProgress.current + delta / 1.0);
+      const t = travelProgress.current;
+
+      const pos = sampleBezier(start, end, t);
+      shipPos.current.copy(pos);
+      shipLook.current.lerp(relightNodePos.clone(), 0.16);
+      thrust.current = 0.82;
+      appearProgress.current = 1;
+
+      // Keep the same wide-angle framing during relight approach.
+      camera.position.lerp(CAMERA_WIDE, 0.08);
+      controls?.target.lerp(CAMERA_WIDE_LOOK, 0.09);
+
+      if (t >= 1 && !hasArrived.current) {
+        hasArrived.current = true;
+        thrust.current = 0.28;
+        onTravelArrive();
+      }
+    } else if (phase === 'exploreTravel') {
       const start = SHIP_IDLE_POS;
       const end = travelTarget.current;
       travelProgress.current = Math.min(1, travelProgress.current + delta / 1.0);
@@ -170,20 +229,39 @@ export function FlightCameraRig({
         onTravelArrive();
       }
     } else if (phase === 'focus') {
-      thrust.current = 0.2;
-      const focusPoint = (branch === 'explore' ? frontierTarget : weakestNodePos).clone();
-      shipPos.current.lerp(focusPoint, 0.08);
-      shipLook.current.lerp(focusPoint.clone().add(new THREE.Vector3(0, 0, -0.6)), 0.12);
+      if (branch === 'relight') {
+        thrust.current = 0.18;
+        shipPos.current.lerp(relightDockPos, 0.1);
+        shipLook.current.lerp(relightNodePos.clone(), 0.14);
 
-      focusProgress.current = Math.min(1, focusProgress.current + delta / 0.5);
-      const cameraOffset = new THREE.Vector3(0.5, 0.75, 3.8).multiplyScalar(1 - focusProgress.current * 0.2);
-      camera.position.lerp(focusPoint.clone().add(cameraOffset), 0.14);
-      controls?.target.lerp(focusPoint, 0.16);
+        focusProgress.current = Math.min(1, focusProgress.current + delta / 0.45);
+        camera.position.lerp(CAMERA_WIDE, 0.08);
+        controls?.target.lerp(CAMERA_WIDE_LOOK, 0.1);
 
-      if (focusProgress.current >= 1 && !hasFocused.current) {
-        hasFocused.current = true;
-        onFocusComplete();
+        if (focusProgress.current >= 1 && !hasFocused.current) {
+          hasFocused.current = true;
+          onFocusComplete();
+        }
+      } else {
+        thrust.current = 0.2;
+        const focusPoint = (branch === 'explore' ? frontierTarget : weakestNodePos).clone();
+        shipPos.current.lerp(focusPoint, 0.08);
+        shipLook.current.lerp(focusPoint.clone().add(new THREE.Vector3(0, 0, -0.6)), 0.12);
+
+        focusProgress.current = Math.min(1, focusProgress.current + delta / 0.5);
+        const cameraOffset = new THREE.Vector3(0.5, 0.75, 3.8).multiplyScalar(1 - focusProgress.current * 0.2);
+        camera.position.lerp(focusPoint.clone().add(cameraOffset), 0.14);
+        controls?.target.lerp(focusPoint, 0.16);
+
+        if (focusProgress.current >= 1 && !hasFocused.current) {
+          hasFocused.current = true;
+          onFocusComplete();
+        }
       }
+    } else if (phase === 'starcoreOpen' && branch === 'relight') {
+      thrust.current = 0.14;
+      shipPos.current.lerp(relightDockPos, 0.08);
+      shipLook.current.lerp(relightNodePos.clone(), 0.12);
     }
 
     controls?.update();
