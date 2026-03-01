@@ -8,6 +8,14 @@ import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import { FlightCameraRig } from './navigation/FlightCameraRig';
 import { FlightModeBranch, FlightModePhase } from './navigation/flightTypes';
 
+// Bloom post-processing wrapped in a React error boundary so it
+// can fail silently on devices that don't support it (mobile WebGL1, etc.)
+class BloomBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
+  constructor(props: any) { super(props); this.state = { failed: false }; }
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() { return this.state.failed ? null : this.props.children; }
+}
+
 const CATEGORY_COLORS: Record<Category, string> = {
   work:     '#3b82f6',
   daily:    '#ec4899',
@@ -448,7 +456,7 @@ export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick,
         <ambientLight intensity={0.4} />
         <pointLight position={[10, 10, 10]} intensity={1.5} />
 
-        <Stars radius={100} depth={50} count={10000} factor={4} saturation={0} fade speed={1} />
+        <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
 
         <group>
           {positionedNodes.map(n => {
@@ -518,9 +526,11 @@ export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick,
           onFocusComplete={onFocusComplete || (() => {})}
         />
 
-        <EffectComposer>
-          <Bloom luminanceThreshold={0.1} luminanceSmoothing={0.9} height={300} intensity={1.5} />
-        </EffectComposer>
+        <BloomBoundary>
+          <EffectComposer>
+            <Bloom luminanceThreshold={0.1} luminanceSmoothing={0.9} height={300} intensity={1.5} />
+          </EffectComposer>
+        </BloomBoundary>
 
         <OrbitControls
           makeDefault

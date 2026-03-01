@@ -3,9 +3,10 @@ Text-to-Speech Service — Speechmatics first (sponsor, all languages), then fal
 
 Priority:
 1. Speechmatics TTS — all languages, neural, fast, hackathon sponsor ✓
-2. Google TTS (httpx) — free fallback
-3. OpenAI TTS (nova) — rate-limited (200 RPD free tier)
-4. Browser SpeechSynthesis — last resort
+2. OpenAI TTS (nova) — rate-limited (200 RPD free tier)
+3. Browser SpeechSynthesis — last resort
+
+Google TTS removed: too unreliable on Railway (timeouts, bot-blocking).
 """
 
 import asyncio
@@ -20,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 # Speechmatics TTS — best female voice per language
 _SPEECHMATICS_VOICE_MAP: dict[str, str] = {
-    "fr": "zoe",     # French female
-    "es": "isabelle", # Spanish
+    "fr": "zoe",       # French female
+    "es": "isabelle",  # Spanish female
     "de": "zoe",
     "it": "zoe",
     "pt": "zoe",
@@ -35,22 +36,26 @@ _SPEECHMATICS_VOICE_MAP: dict[str, str] = {
     "hi": "zoe",
     "sv": "zoe",
     "pl": "zoe",
-    "en": "sarah",   # English female UK
-}
-
-# gTTS / Google Translate TTS language codes
-_GTTS_LANG_MAP: dict[str, str] = {
-    "fr": "fr", "es": "es", "de": "de", "it": "it", "pt": "pt",
-    "ja": "ja", "ko": "ko", "zh": "zh-TW", "ar": "ar", "ru": "ru",
-    "nl": "nl", "tr": "tr", "hi": "hi", "sv": "sv", "pl": "pl",
-    "en": "en",
+    "en": "sarah",     # English female UK
 }
 
 _SPEECHMATICS_TTS_URL = "https://preview.tts.speechmatics.com/generate/{voice}"
 
+# Keep one persistent aiohttp session for connection reuse (faster subsequent calls)
+_aiohttp_session: "aiohttp.ClientSession | None" = None
+
+
+async def _get_session() -> "aiohttp.ClientSession":
+    """Return a shared aiohttp session (creates one if needed)."""
+    global _aiohttp_session
+    import aiohttp
+    if _aiohttp_session is None or _aiohttp_session.closed:
+        _aiohttp_session = aiohttp.ClientSession()
+    return _aiohttp_session
+
 
 class TTSService:
-    """TTS: Speechmatics → Google TTS → OpenAI → browser."""
+    """TTS: Speechmatics → OpenAI → browser."""
 
     def __init__(self):
         self.mock_mode = MOCK_MODE
@@ -78,106 +83,78 @@ class TTSService:
         return await self._real_synthesize(text)
 
     async def _real_synthesize(self, text: str) -> dict:
-        # ── 1. Speechmatics TTS (all languages) ──────────────────────
+        # ── 1. Speechmatics TTS (primary — all languages) ─────────────
         if self._speechmatics_api_key:
             result = await self._speechmatics_synthesize(text)
             if result:
                 return result
 
-        # ── 2. Google TTS via httpx (free fallback) ───────────────────
-        result = await self._google_tts_synthesize(text)
-        if result:
-            return result
-
-        # ── 3. OpenAI TTS (rate-limited) ─────────────────────────────
+        # ── 2. OpenAI TTS (rate-limited fallback) ─────────────────────
         if time.perf_counter() >= self._openai_cooldown_until:
             result = await self._openai_synthesize(text)
             if result:
                 return result
 
-        # ── 4. Browser fallback ───────────────────────────────────────
+        # ── 3. Browser fallback ───────────────────────────────────────
         logger.warning("All TTS providers failed → browser fallback")
         return {"mode": "browser", "text": text}
 
     async def _speechmatics_synthesize(self, text: str) -> dict | None:
-        """Speechmatics TTS — all languages, neural quality, hackathon sponsor."""
+        """Speechmatics TTS — persistent session for speed, retry once on failure."""
         t0 = time.perf_counter()
-        try:
-            import aiohttp
-            voice = _SPEECHMATICS_VOICE_MAP.get(self._language, "zoe")
-            url = _SPEECHMATICS_TTS_URL.format(voice=voice)
-            headers = {"Authorization": f"Bearer {self._speechmatics_api_key}"}
-            payload = {"text": text[:500]}  # cap to avoid oversized requests
+        voice = _SPEECHMATICS_VOICE_MAP.get(self._language, "zoe")
+        url = _SPEECHMATICS_TTS_URL.format(voice=voice)
+        headers = {"Authorization": f"Bearer {self._speechmatics_api_key}"}
+        payload = {"text": text[:500]}  # cap to avoid oversized requests
 
-            async with aiohttp.ClientSession() as session:
+        for attempt in range(2):  # try twice — network hiccups happen
+            try:
+                import aiohttp
+                session = await _get_session()
                 async with session.post(
                     url, json=payload, headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=8)
+                    timeout=aiohttp.ClientTimeout(total=6)  # 6s max
                 ) as resp:
-                    if resp.status != 200:
-                        logger.warning("Speechmatics TTS HTTP %d", resp.status)
+                    if resp.status == 401:
+                        logger.error("Speechmatics TTS: invalid API key (401)")
+                        return None  # no point retrying
+                    if resp.status == 429:
+                        logger.warning("Speechmatics TTS: rate limited (429)")
                         return None
+                    if resp.status != 200:
+                        logger.warning("Speechmatics TTS HTTP %d (attempt %d)", resp.status, attempt + 1)
+                        await asyncio.sleep(0.2)
+                        continue
                     audio_bytes = await resp.read()
 
-            if not audio_bytes:
-                return None
+                if not audio_bytes:
+                    logger.warning("Speechmatics TTS: empty response (attempt %d)", attempt + 1)
+                    continue
 
-            audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
-            tts_ms = int((time.perf_counter() - t0) * 1000)
-            logger.info("Speechmatics TTS [%s/%s]: %dms, %d bytes", self._language, voice, tts_ms, len(audio_bytes))
-            return {
-                "mode": "audio",
-                "audio_base64": audio_base64,
-                "content_type": "audio/wav",
-                "text": text,
-            }
-        except asyncio.TimeoutError:
-            logger.warning("Speechmatics TTS timed out (8s)")
-            return None
-        except Exception as exc:
-            logger.warning("Speechmatics TTS failed: %s", exc)
-            return None
+                audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+                tts_ms = int((time.perf_counter() - t0) * 1000)
+                logger.info("Speechmatics TTS [%s/%s]: %dms, %d bytes", self._language, voice, tts_ms, len(audio_bytes))
+                return {
+                    "mode": "audio",
+                    "audio_base64": audio_base64,
+                    "content_type": "audio/wav",
+                    "text": text,
+                }
+            except asyncio.TimeoutError:
+                logger.warning("Speechmatics TTS timed out 6s (attempt %d)", attempt + 1)
+                # Reset session on timeout — stale connection
+                global _aiohttp_session
+                if _aiohttp_session and not _aiohttp_session.closed:
+                    await _aiohttp_session.close()
+                _aiohttp_session = None
+            except Exception as exc:
+                logger.warning("Speechmatics TTS failed: %s (attempt %d)", exc, attempt + 1)
+                # Reset session on error
+                if _aiohttp_session and not _aiohttp_session.closed:
+                    await _aiohttp_session.close()
+                _aiohttp_session = None
 
-    async def _google_tts_synthesize(self, text: str) -> dict | None:
-        """Google Translate TTS via httpx — free, async, no rate limits."""
-        t0 = time.perf_counter()
-        try:
-            import httpx
-            lang = _GTTS_LANG_MAP.get(self._language, "fr")
-            url = "https://translate.google.com/translate_tts"
-            params = {
-                "ie": "UTF-8",
-                "q": text[:200],
-                "tl": lang,
-                "client": "tw-ob",
-                "ttsspeed": "1",
-            }
-            headers = {
-                "User-Agent": "Mozilla/5.0 (compatible; EchoBot/1.0)",
-                "Referer": "https://translate.google.com/",
-            }
-            async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
-                resp = await client.get(url, params=params, headers=headers)
-
-            if resp.status_code != 200 or not resp.content:
-                logger.warning("Google TTS HTTP %d", resp.status_code)
-                return None
-
-            audio_base64 = base64.b64encode(resp.content).decode("utf-8")
-            tts_ms = int((time.perf_counter() - t0) * 1000)
-            logger.info("Google TTS [%s]: %dms, %d bytes", lang, tts_ms, len(resp.content))
-            return {
-                "mode": "audio",
-                "audio_base64": audio_base64,
-                "content_type": "audio/mpeg",
-                "text": text,
-            }
-        except asyncio.TimeoutError:
-            logger.warning("Google TTS timed out (8s)")
-            return None
-        except Exception as exc:
-            logger.warning("Google TTS failed: %s", exc)
-            return None
+        return None
 
     async def _openai_synthesize(self, text: str) -> dict | None:
         """OpenAI TTS (nova) — rate-limited backup."""

@@ -583,16 +583,18 @@ export default function App() {
     } catch { /* no-op */ }
   }, []);
 
-  // ── TTS playback — restored from original working version ─────────────
+  // ── TTS playback — uses turn counter to handle multiple turns correctly ──
   // IMPORTANT: [] deps — uses refs for all dynamic values (no stale closure)
   const playTtsPayload = useCallback((tts: any) => {
     if (!tts) return;
-    if (ttsPlaybackSettledRef.current) return;
+    // Capture turn ID immediately — this is what this TTS belongs to
     const myTurn = ttsExpectedTurnRef.current;
+    // If already settled for this turn, ignore duplicate TTS
+    if (ttsPlaybackSettledRef.current) return;
 
     const fallbackText = tts?.text || lastAiTextRef.current;
     const markSpoken = () => {
-      if (ttsExpectedTurnRef.current !== myTurn) return; // stale TTS from previous turn
+      if (ttsExpectedTurnRef.current !== myTurn) return; // stale TTS from a previous turn
       ttsPlaybackSettledRef.current = true;
       if (ttsFallbackTimerRef.current) {
         clearTimeout(ttsFallbackTimerRef.current);
@@ -630,7 +632,7 @@ export default function App() {
 
     if (tts.mode === 'audio' && tts.audio_base64) {
       try {
-        if (ttsExpectedTurnRef.current !== myTurn) return; // stale
+        if (ttsExpectedTurnRef.current !== myTurn) return; // stale — new turn already started
         if (activeAudioRef.current) {
           activeAudioRef.current.pause();
           activeAudioRef.current = null;

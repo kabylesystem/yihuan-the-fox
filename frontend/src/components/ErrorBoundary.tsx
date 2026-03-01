@@ -12,6 +12,9 @@ interface State {
   errorCount: number;
 }
 
+// Auto-retry up to this many times before showing the fallback UI
+const MAX_AUTO_RETRIES = 3;
+
 export class ErrorBoundary extends React.Component<Props, State> {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -26,16 +29,24 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('ErrorBoundary caught:', error, info);
-    this.props.onError?.();
-    // Auto-recover after 2 seconds (re-mount the Canvas)
-    this.retryTimer = setTimeout(() => {
-      this.setState((prev) => ({ hasError: false, errorCount: prev.errorCount + 1 }));
-    }, 2000);
+
+    const nextCount = this.state.errorCount + 1;
+
+    if (nextCount >= MAX_AUTO_RETRIES) {
+      // Give up auto-recovering — notify parent so it can show fallback UI
+      this.props.onError?.();
+    } else {
+      // Auto-recover silently — don't notify parent (keeps conversation running)
+      this.retryTimer = setTimeout(() => {
+        this.setState({ hasError: false, errorCount: nextCount });
+      }, 1500);
+    }
   }
 
   componentDidUpdate(prevProps: Props) {
-    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
-      this.setState({ hasError: false });
+    if (prevProps.resetKey !== this.props.resetKey) {
+      if (this.retryTimer) clearTimeout(this.retryTimer);
+      this.setState({ hasError: false, errorCount: 0 });
     }
   }
 
@@ -45,6 +56,15 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
+      // Show silent recovery message for first few attempts
+      if (this.state.errorCount < MAX_AUTO_RETRIES) {
+        return (
+          <div className="w-full h-full bg-[#020205] flex items-center justify-center">
+            <div className="text-white/30 text-xs">Reloading 3D...</div>
+          </div>
+        );
+      }
+      // Exhausted retries — show the full fallback
       return this.props.fallback || (
         <div className="w-full h-full bg-[#020205] flex items-center justify-center">
           <div className="text-white/40 text-sm">Reloading visualization...</div>
