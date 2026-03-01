@@ -305,6 +305,52 @@ async def graph_links() -> list[dict]:
                     [old_unit, new_unit],
                 )
 
+    # Strategy 4: Same-turn co-occurrence — phrases said together are related
+    for t in state.conversation_history:
+        t_data = t.model_dump()
+        resp = t_data["response"]
+        tn = t_data["turn_number"]
+        units = resp.get("validated_user_units") or []
+        accepted_units = [u for u in units if u.get("is_accepted")]
+        accepted = _pedagogical_items([u.get("text", "") for u in accepted_units])
+        # Link consecutive pairs from same utterance (natural i+1 progression)
+        for i in range(len(accepted) - 1):
+            _add_link(accepted[i], accepted[i + 1], "semantic", tn,
+                      "Used together in the same utterance.",
+                      [accepted[i], accepted[i + 1]])
+
+    # Strategy 5: Cross-turn shared words — link phrases that share vocabulary
+    # e.g. "j'aime le chocolat" ↔ "j'aime la pizza" (shared "j'aime")
+    all_phrases = []  # (text, tokens_set, turn)
+    for t in state.conversation_history:
+        t_data = t.model_dump()
+        resp = t_data["response"]
+        tn = t_data["turn_number"]
+        units = resp.get("validated_user_units") or []
+        accepted_units = [u for u in units if u.get("is_accepted")]
+        for u in accepted_units:
+            text = u.get("text", "")
+            if not text or " " not in text:
+                continue  # Only multi-word phrases
+            tokens = set(_norm_text(text).split())
+            tokens -= {"je", "tu", "il", "elle", "le", "la", "les", "un", "une",
+                        "de", "du", "des", "et", "a", "est", "en", "au", "aux"}
+            if tokens:
+                all_phrases.append((text, tokens, tn))
+    # Compare each pair of multi-word phrases
+    for i in range(len(all_phrases)):
+        for j in range(i + 1, len(all_phrases)):
+            t1, tok1, tn1 = all_phrases[i]
+            t2, tok2, tn2 = all_phrases[j]
+            if _norm_text(t1) == _norm_text(t2):
+                continue
+            shared = tok1 & tok2
+            # At least 1 meaningful shared word = i+1 progression link
+            if shared:
+                _add_link(t1, t2, "semantic", max(tn1, tn2),
+                          f"Shared vocabulary: {', '.join(sorted(shared)[:3])}.",
+                          [t1, t2])
+
     # Readability guardrail: cap node degree so graph does not collapse into a spiral
     priority = {"mission": 5, "reactivation": 4, "prerequisite": 3, "conjugation": 2, "semantic": 1}
     sorted_links = sorted(
@@ -317,7 +363,7 @@ async def graph_links() -> list[dict]:
     for link in sorted_links:
         src = link["source"]
         tgt = link["target"]
-        if degree.get(src, 0) >= 4 or degree.get(tgt, 0) >= 4:
+        if degree.get(src, 0) >= 6 or degree.get(tgt, 0) >= 6:
             continue
         degree[src] = degree.get(src, 0) + 1
         degree[tgt] = degree.get(tgt, 0) + 1
