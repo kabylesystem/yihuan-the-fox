@@ -329,8 +329,26 @@ def _strict_validate_units(
         if kind in ("pattern", "sentence"):
             mission_relevance = max(mission_relevance, 0.7)
 
-        in_corrected = text in corrected_text or canonical_key.startswith("pattern:") or kind == "sentence"
-        in_source = text in source_text or kind == "sentence"
+        # Strict user-text check: at least half the unit's tokens must appear
+        # in the user's actual spoken text. This prevents AI-generated words
+        # from leaking into the knowledge graph.
+        unit_tokens = set(_tokenize(text))
+        source_tokens = set(_tokenize(source_text))
+        if unit_tokens and source_tokens:
+            overlap = len(unit_tokens & source_tokens)
+            overlap_ratio = overlap / len(unit_tokens)
+        else:
+            overlap_ratio = 0.0
+        if overlap_ratio < 0.5 and kind != "pattern":
+            rejected.append({
+                "text": text, "kind": kind, "source": item["source"],
+                "confidence": 0.4, "is_accepted": False, "reject_reason": "not_in_user_speech",
+                "canonical_key": canonical_key, "mission_relevance": 0.0,
+            })
+            continue
+
+        in_corrected = text in corrected_text or canonical_key.startswith("pattern:")
+        in_source = text in source_text or overlap_ratio >= 0.8
         if corrected_form and not in_corrected and kind in ("chunk", "word"):
             rejected.append({
                 "text": text, "kind": kind, "source": item["source"],
