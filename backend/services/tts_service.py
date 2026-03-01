@@ -33,8 +33,8 @@ class TTSService:
             api_key=api_key,
             organization=org_id if org_id else None,
         )
-        self._model = "gpt-4o-mini-tts"
-        self._voice = "coral"
+        self._model = "tts-1"
+        self._voice = "nova"
 
     async def synthesize(self, text: str) -> dict:
         """Synthesize speech from text.
@@ -63,9 +63,7 @@ class TTSService:
                     model=self._model,
                     voice=self._voice,
                     input=text,
-                    instructions="Speak in natural, clear French with a warm, encouraging tone.",
                     response_format="mp3",
-                    speed=1.15,
                 ),
                 timeout=10,
             )

@@ -165,7 +165,7 @@ function NeuronNode({ neuron, onClick, isDimmed, isFocused, compactMode }: {
       <Text
         position={[0, radius + 0.35, 0]}
         fontSize={compactMode ? 0.36 : 0.3}
-        color="#10246f"
+        color="#ffffff"
         anchorX="center"
         anchorY="middle"
         maxWidth={4}
