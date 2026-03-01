@@ -155,19 +155,12 @@ export function FlightCameraRig({
     const isFlightActive = phase !== 'hidden';
 
     if (!isFlightActive) {
-      const fallbackTarget =
-        searchTarget && searchTarget.x !== undefined
-          ? new THREE.Vector3(searchTarget.x, searchTarget.y, searchTarget.z)
-          : CAMERA_DEFAULT_LOOK;
-
-      const fallbackPos =
-        searchTarget && searchTarget.x !== undefined
-          ? new THREE.Vector3(searchTarget.x, searchTarget.y, (searchTarget.z ?? 0) + 5)
-          : CAMERA_DEFAULT;
-
-      camera.position.lerp(fallbackPos, 0.05);
-      if (controls) controls.target.lerp(fallbackTarget, 0.06);
-      controls?.update();
+      // Only move the camera when searching — otherwise let the user navigate freely
+      if (searchTarget && searchTarget.x !== undefined) {
+        camera.position.lerp(new THREE.Vector3(searchTarget.x, searchTarget.y, (searchTarget.z ?? 0) + 5), 0.05);
+        if (controls) controls.target.lerp(new THREE.Vector3(searchTarget.x, searchTarget.y, searchTarget.z), 0.06);
+        controls?.update();
+      }
       return;
     }
 

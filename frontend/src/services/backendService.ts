@@ -405,3 +405,36 @@ export async function isBackendAvailable(): Promise<boolean> {
     return false;
   }
 }
+
+// ── Profile management ──────────────────────────────────────────────────
+
+export interface Profile {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+export async function fetchProfiles(): Promise<Profile[]> {
+  const base = getBaseUrl();
+  try {
+    const res = await fetch(`${base}/api/session/profiles`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function switchProfile(profileId: string): Promise<boolean> {
+  const base = getBaseUrl();
+  try {
+    const res = await fetch(`${base}/api/session/switch-profile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile_id: profileId }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}

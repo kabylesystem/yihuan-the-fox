@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Bot, Loader2, Mic, Send, User, Zap } from 'lucide-react';
+import { Bot, Loader2, Mic, Send, User } from 'lucide-react';
 import { FlightModeBranch } from './flightTypes';
+import { sendMessage } from '../../services/backendService';
 
 interface SessionMessage {
   id: string;
@@ -17,39 +18,23 @@ interface StarcoreSessionViewProps {
   onSessionComplete?: () => void;
 }
 
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = (reader.result as string).split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 function buildInitialMessages(branch: FlightModeBranch, targetLabel?: string): SessionMessage[] {
   if (branch === 'explore') {
-    return [
-      {
-        id: 'exp-1',
-        role: 'ai',
-        text: 'Phase 3 online: i+1 Boundary Expansion. We will use mostly mastered language and dock one new structure.',
-      },
-      {
-        id: 'exp-2',
-        role: 'ai',
-        text: 'Known baseline: "I went to the park." Expansion target: "I went to the park to clear my head."',
-      },
-      {
-        id: 'exp-3',
-        role: 'ai',
-        text: 'Knowledge docking: you mastered "I want to eat an apple." Next step: "I\'m craving an apple." Explain "craving" with one familiar word.',
-      },
-    ];
+    return [{ id: 'exp-1', role: 'ai', text: 'Try building a new sentence using what you already know. I\'ll guide you!' }];
   }
-
-  return [
-    {
-      id: 'rel-1',
-      role: 'ai',
-      text: `Last session we learned \"${targetLabel ?? 'this memory node'}\". Recalibration is now active.`,
-    },
-    {
-      id: 'rel-2',
-      role: 'ai',
-      text: 'Let us review and strengthen retention: paraphrase it once, then use it in one new sentence with your own context.',
-    },
-  ];
+  return [{ id: 'rel-1', role: 'ai', text: `Let's review "${targetLabel ?? 'this phrase'}". Can you use it in a sentence?` }];
 }
 
 export function StarcoreSessionView({
@@ -64,12 +49,15 @@ export function StarcoreSessionView({
   const [isResponding, setIsResponding] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const silenceStartRef = useRef<number>(0);
+  const hasSpokenRef = useRef(false);
+  const vadIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const userTurnCount = useMemo(() => messages.filter((m) => m.role === 'user').length, [messages]);
-
-  const sessionTitle = useMemo(
-    () => (branch === 'explore' ? 'Frontier Expansion Session' : 'Memory Recalibration Session'),
-    [branch]
-  );
 
   useEffect(() => {
     setMessages(buildInitialMessages(branch, targetLabel));
@@ -78,90 +66,166 @@ export function StarcoreSessionView({
     setIsListening(false);
   }, [branch, targetLabel]);
 
+  useEffect(() => { onSessionStart?.(); }, [onSessionStart, branch, targetLabel]);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
+  // Cleanup on unmount
   useEffect(() => {
-    onSessionStart?.();
-  }, [onSessionStart, branch, targetLabel]);
+    return () => {
+      if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
+      if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
+      if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+      if (audioContextRef.current) audioContextRef.current.close();
+    };
+  }, []);
 
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const simulateAiReply = (userText: string) => {
-    const response =
-      branch === 'explore'
-        ? `Good attempt. Keep your known structure, then add one frontier element. Try: "${userText}" + a purpose phrase such as "to clear my head."`
-        : `Nice recall. Now deepen retention: reuse the same idea in a different real-life scenario and keep the key phrase stable.`;
-
-    window.setTimeout(() => {
-      setMessages((prev) => [...prev, { id: `ai-${Date.now()}`, role: 'ai', text: response }]);
+  const handleAiReply = async (userText: string) => {
+    setIsResponding(true);
+    try {
+      const data = await sendMessage(userText, 'text');
+      // Backend sends {type: "turn_response", turn: {response: {spoken_response: ...}}}
+      const turn = data?.turn;
+      const resp = turn?.response;
+      const aiText = resp?.spoken_response || data?.message || 'I didn\'t catch that. Try again?';
+      setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'ai', text: aiText }]);
+    } catch {
+      setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'ai', text: 'Connection error. Try again.' }]);
+    } finally {
       setIsResponding(false);
-    }, 550);
+    }
   };
 
   const sendUserMessage = (text: string) => {
     const cleaned = text.trim();
     if (!cleaned || isResponding) return;
-
-    setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', text: cleaned }]);
+    setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', text: cleaned }]);
     setInput('');
-    setIsResponding(true);
-    simulateAiReply(cleaned);
+    handleAiReply(cleaned);
   };
 
-  const handleVoiceSimulate = () => {
-    if (isListening || isResponding) return;
+  const sendAudioMessage = async (blob: Blob) => {
+    if (blob.size === 0) return;
+    setIsResponding(true);
+    try {
+      const base64 = await blobToBase64(blob);
+      const data = await sendMessage(base64, 'audio');
+      // Backend sends {type: "turn_response", turn: {user_said: ..., response: {spoken_response: ...}}}
+      const turn = data?.turn;
+      const resp = turn?.response;
+      const userSaid = turn?.user_said || '';
+      const aiText = resp?.spoken_response || data?.message || 'I didn\'t catch that.';
+      if (userSaid) {
+        setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', text: userSaid }]);
+      }
+      setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'ai', text: aiText }]);
+    } catch {
+      setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'ai', text: 'Connection error. Try again.' }]);
+    } finally {
+      setIsResponding(false);
+    }
+  };
 
-    setIsListening(true);
-    window.setTimeout(() => {
-      setIsListening(false);
-      sendUserMessage(branch === 'explore' ? 'I went to the park to relax after work.' : 'I reviewed this phrase again and used it in my own sentence.');
-    }, 900);
+  const stopRecording = () => {
+    if (vadIntervalRef.current) { clearInterval(vadIntervalRef.current); vadIntervalRef.current = null; }
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+    }
+    setIsListening(false);
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      const audioCtx = new AudioContext();
+      audioContextRef.current = audioCtx;
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.3;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+      silenceStartRef.current = 0;
+      hasSpokenRef.current = false;
+
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : 'audio/webm',
+      });
+
+      chunksRef.current = [];
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      mediaRecorder.onstop = async () => {
+        if (vadIntervalRef.current) { clearInterval(vadIntervalRef.current); vadIntervalRef.current = null; }
+        if (audioContextRef.current) { audioContextRef.current.close(); audioContextRef.current = null; }
+        if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        chunksRef.current = [];
+        if (blob.size > 0) sendAudioMessage(blob);
+      };
+
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start(100);
+      setIsListening(true);
+
+      // VAD: auto-stop on silence
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      vadIntervalRef.current = setInterval(() => {
+        if (!analyserRef.current) return;
+        analyserRef.current.getByteFrequencyData(dataArray);
+        const avg = dataArray.reduce((s, v) => s + v, 0) / dataArray.length;
+        if (avg > 15) {
+          hasSpokenRef.current = true;
+          silenceStartRef.current = 0;
+        } else if (hasSpokenRef.current) {
+          if (silenceStartRef.current === 0) silenceStartRef.current = Date.now();
+          else if (Date.now() - silenceStartRef.current > 500) stopRecording();
+        }
+      }, 100);
+    } catch {
+      // Mic not available
+    }
+  };
+
+  const handleVoiceToggle = () => {
+    if (isResponding) return;
+    if (isListening) stopRecording();
+    else startRecording();
   };
 
   const canCompleteRelight = branch === 'relight' && userTurnCount >= 2 && !isResponding;
 
-  const handleCompleteRelight = () => {
-    if (!canCompleteRelight) return;
-    onSessionComplete?.();
-  };
-
   return (
     <div className="h-full flex flex-col">
-      <div className="border-b border-white/10 p-4">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-cyan-200/60">Session Active</p>
-        <h3 className="mt-1 text-sm font-semibold text-cyan-50">{sessionTitle}</h3>
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-white/[0.10] px-4 py-3">
+        <h3 className="text-sm font-semibold text-white">
+          {branch === 'explore' ? 'Explore' : 'Review'}
+        </h3>
         <button
           onClick={onBack}
-          className="mt-3 rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-white/80 transition hover:bg-white/10"
+          className="text-xs text-white/40 hover:text-white/70 transition"
         >
-          Back to Console
+          Close
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        <div className="rounded-xl border border-cyan-300/20 bg-cyan-500/10 p-3">
-          <div className="flex items-center gap-2 text-cyan-100">
-            <Zap size={13} />
-            <p className="text-[11px] uppercase tracking-[0.16em] font-semibold">Context Anchor</p>
-          </div>
-          <p className="mt-2 text-xs text-cyan-100/80">
-            {branch === 'explore'
-              ? '70-80% known language + 20-30% new i+1 input. Explain each new item with one familiar expression.'
-              : `Review focus: ${targetLabel ?? 'selected memory node'} + one transfer sentence in a new context.`}
-          </p>
-        </div>
-
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {messages.map((msg) => (
           <motion.div
             key={msg.id}
-            initial={{ opacity: 0, y: 8 }}
+            initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             className={`flex gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
           >
-            <div className={`w-7 h-7 rounded-lg flex items-center justify-center border ${msg.role === 'user' ? 'bg-emerald-500/15 border-emerald-500/30' : 'bg-blue-500/15 border-blue-500/30'}`}>
-              {msg.role === 'user' ? <User size={13} className="text-emerald-300" /> : <Bot size={13} className="text-blue-300" />}
+            <div className={`w-6 h-6 rounded-md flex items-center justify-center border flex-shrink-0 ${msg.role === 'user' ? 'bg-cyan-500/15 border-cyan-400/25' : 'bg-blue-500/15 border-blue-400/25'}`}>
+              {msg.role === 'user' ? <User size={11} className="text-cyan-300" /> : <Bot size={11} className="text-blue-300" />}
             </div>
-            <div className={`max-w-[86%] rounded-xl border px-3 py-2 text-xs leading-relaxed ${msg.role === 'user' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-50' : 'bg-blue-500/10 border-blue-500/20 text-blue-50'}`}>
+            <div className={`max-w-[85%] rounded-xl border px-3 py-2 text-[13px] leading-relaxed ${msg.role === 'user' ? 'bg-cyan-500/10 border-cyan-400/20 text-white/90' : 'bg-white/[0.06] border-white/[0.10] text-white/70'}`}>
               {msg.text}
             </div>
           </motion.div>
@@ -169,55 +233,50 @@ export function StarcoreSessionView({
 
         <AnimatePresence>
           {isResponding && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-[11px] text-blue-200/70">
-              Starcore is generating the next guided step...
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-[11px] text-white/30">
+              Thinking...
             </motion.div>
           )}
         </AnimatePresence>
-
         <div ref={endRef} />
       </div>
 
-      <div className="border-t border-white/10 p-4 space-y-2">
+      {/* Input */}
+      <div className="border-t border-white/[0.10] p-3 space-y-2">
         <div className="flex gap-2">
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={branch === 'explore' ? 'Type your i+1 attempt...' : 'Type your recall sentence...'}
-            className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400/50"
+            onKeyDown={(e) => e.key === 'Enter' && sendUserMessage(input)}
+            placeholder="Type in French..."
+            className="flex-1 rounded-xl border border-white/[0.14] bg-white/[0.07] px-3 py-2 text-xs text-white placeholder-white/30 focus:outline-none focus:border-blue-400/40"
           />
           <button
             onClick={() => sendUserMessage(input)}
             disabled={isResponding || !input.trim()}
-            className="rounded-xl border border-cyan-400/30 bg-cyan-500/15 px-3 text-cyan-100 transition hover:bg-cyan-400/20 disabled:opacity-40"
+            className="rounded-xl border border-white/[0.14] bg-white/[0.07] px-3 text-white/60 transition hover:bg-white/[0.12] disabled:opacity-40"
           >
             <Send size={14} />
           </button>
+          <button
+            onClick={handleVoiceToggle}
+            disabled={isResponding}
+            className={`rounded-xl border px-3 transition ${
+              isListening
+                ? 'border-violet-400/40 bg-violet-500/25 text-violet-200'
+                : 'border-white/[0.14] bg-white/[0.07] text-white/60 hover:bg-white/[0.12]'
+            }`}
+          >
+            {isListening ? <Loader2 size={14} className="animate-spin" /> : <Mic size={14} />}
+          </button>
         </div>
 
-        <button
-          onClick={handleVoiceSimulate}
-          disabled={isResponding}
-          className={`w-full h-10 rounded-xl border text-xs uppercase tracking-[0.16em] font-semibold transition ${
-            isListening
-              ? 'border-red-400/40 bg-red-500/20 text-red-100'
-              : 'border-blue-400/30 bg-blue-500/20 text-blue-100 hover:bg-blue-500/25'
-          }`}
-        >
-          {isListening ? (
-            <span className="inline-flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Listening...</span>
-          ) : (
-            <span className="inline-flex items-center gap-2"><Mic size={14} /> Hold to Speak (Simulated)</span>
-          )}
-        </button>
-
-        {branch === 'relight' && (
+        {canCompleteRelight && (
           <button
-            onClick={handleCompleteRelight}
-            disabled={!canCompleteRelight}
-            className="w-full h-10 rounded-xl border border-emerald-400/35 bg-emerald-500/20 text-xs uppercase tracking-[0.16em] font-semibold text-emerald-100 transition hover:bg-emerald-500/25 disabled:opacity-40"
+            onClick={() => onSessionComplete?.()}
+            className="w-full py-2 rounded-xl border border-blue-400/25 bg-blue-500/15 text-xs font-medium text-blue-200 transition hover:bg-blue-500/20"
           >
-            Complete Relight
+            Complete Review
           </button>
         )}
       </div>

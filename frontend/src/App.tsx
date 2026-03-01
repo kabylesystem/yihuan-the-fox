@@ -4,10 +4,10 @@ import { Dashboard } from './components/Dashboard';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Neuron, Synapse, NebulaState, Category, Message } from './types';
 import { analyzeInput, checkBackend, isUsingBackend, resetMockState, getMockTurnIndex, getTotalMockTurns } from './services/geminiService';
-import { onConnectionStatusChange, onStatusStep, onTTS, ConnectionStatus, hardResetSession } from './services/backendService';
+import { onConnectionStatusChange, onStatusStep, onTTS, ConnectionStatus, hardResetSession, fetchProfiles, switchProfile, fetchGraphData, Profile } from './services/backendService';
 import { Send, Zap, Info, Loader2, Search, Filter, Mic, Clock, X, MessageSquare, User, Bot, ChevronDown, ChevronUp, RefreshCw, Wifi, WifiOff, CheckCircle2, Circle, Sparkles, LocateFixed, Trash2, Volume2, FlaskConical, BarChart2, Rocket } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { getDailyMissions, evaluateMissionTask as evalTask, MascotOverlay, loadDailyState, saveOnboarding, saveMissionProgress } from './missions';
+import { getDailyMissions, evaluateMissionTask as evalTask, MascotOverlay, loadDailyState, saveOnboarding, saveMissionProgress, SUPPORTED_LANGUAGES } from './missions';
 import type { LearnerLevel, MissionWithTasks, MascotOverlayProps } from './missions';
 import { useFlightModeMachine } from './components/navigation/useFlightModeMachine';
 import { FlightModeChoice } from './components/navigation/FlightModeChoice';
@@ -21,15 +21,15 @@ const INITIAL_STATE: NebulaState = {
     {
       id: 'welcome',
       role: 'ai',
-      text: 'Welcome! Tap the mic and say "Bonjour" to begin. Each word you learn becomes a node in your knowledge graph — watch connections form as you progress.',
+      text: 'Welcome! Tap the mic and say hello to begin. Each word you learn becomes a node in your knowledge graph — watch connections form as you progress.',
       timestamp: Date.now(),
       analysis: {
         vocabulary: [
-          { word: 'Bienvenue', translation: 'Welcome', type: 'interjection', isNew: true },
+          { word: 'Welcome', translation: 'Welcome', type: 'interjection', isNew: true },
         ],
-        newElements: ['French Greeting'],
+        newElements: ['First Greeting'],
         level: 'A0',
-        progress: 'Say your first French word to create your first neuron!'
+        progress: 'Say your first word to create your first neuron!'
       }
     }
   ]
@@ -146,19 +146,28 @@ const FRENCH_VOCAB: { word: string; translation: string; category: Category; kin
 function generateTestNeurons(count: number): { neurons: Neuron[]; synapses: Synapse[] } {
   const shuffled = [...FRENCH_VOCAB].sort(() => Math.random() - 0.5);
   const selected = shuffled.slice(0, Math.min(count, shuffled.length));
-  const neurons: Neuron[] = selected.map((v, i) => ({
-    id: `test-${i}-${v.word.replace(/\s/g, '_')}`,
-    label: v.word,
-    type: 'soma' as const,
-    nodeKind: v.kind,
-    potential: 0.5 + Math.random() * 0.5,
-    strength: 0.15 + Math.random() * 0.85,
-    usageCount: 1 + Math.floor(Math.random() * 8),
-    category: v.category,
-    grammarDna: '',
-    isNew: i < 5,
-    lastReviewed: Date.now() - Math.floor(Math.random() * 600000),
-  }));
+  const neurons: Neuron[] = selected.map((v, i) => {
+    // Realistic strength distribution: some fading, some medium, some strong
+    const bucket = Math.random();
+    const strength = bucket < 0.2
+      ? 0.15 + Math.random() * 0.25   // 20% fading (0.15-0.40)
+      : bucket < 0.5
+        ? 0.40 + Math.random() * 0.25 // 30% medium (0.40-0.65)
+        : 0.65 + Math.random() * 0.35; // 50% strong (0.65-1.0)
+    return {
+      id: `test-${i}-${v.word.replace(/\s/g, '_')}`,
+      label: v.word,
+      type: 'soma' as const,
+      nodeKind: v.kind,
+      potential: strength,
+      strength,
+      usageCount: 1 + Math.floor(Math.random() * 8),
+      category: v.category,
+      grammarDna: '',
+      isNew: i < 5,
+      lastReviewed: Date.now() - Math.floor(Math.random() * 600000),
+    };
+  });
   // Generate meaningful links
   const synapses: Synapse[] = [];
   const linkKinds: ('semantic' | 'conjugation' | 'prerequisite' | 'reactivation')[] = ['semantic', 'conjugation', 'prerequisite', 'reactivation'];
@@ -208,7 +217,7 @@ function blobToBase64(blob: Blob): Promise<string> {
 
 // ── Animated word-by-word text ───────────────────────────────────────────
 
-function AnimatedText({ text, className, delay = 0 }: { text: string; className?: string; delay?: number }) {
+function AnimatedText({ text, className, delay = 0, msPerWord = 60 }: { text: string; className?: string; delay?: number; msPerWord?: number }) {
   const words = text.split(' ');
   return (
     <span className={className}>
@@ -217,11 +226,63 @@ function AnimatedText({ text, className, delay = 0 }: { text: string; className?
           key={`${word}-${i}`}
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: delay + i * 0.06, duration: 0.3 }}
+          transition={{ delay: delay + i * (msPerWord / 1000), duration: 0.2 }}
           className="inline-block mr-[0.3em]"
         >
           {word}
         </motion.span>
+      ))}
+    </span>
+  );
+}
+
+// ── Audio-synced word reveal (uses audio.currentTime for precise sync) ───
+function AudioSyncedText({ text, audioRef, className }: { text: string; audioRef: React.RefObject<HTMLAudioElement | null>; className?: string }) {
+  const words = React.useMemo(() => text.split(' '), [text]);
+  const [visibleCount, setVisibleCount] = React.useState(0);
+
+  // Build character-proportional timing thresholds
+  const thresholds = React.useMemo(() => {
+    const totalChars = words.reduce((s, w) => s + w.length + 1, 0);
+    let cum = 0;
+    return words.map((w) => {
+      const t = cum / totalChars;
+      cum += w.length + 1;
+      return t; // fraction 0..1 of total duration
+    });
+  }, [words]);
+
+  React.useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) { setVisibleCount(words.length); return; }
+
+    let raf: number;
+    const tick = () => {
+      if (!audio.duration || audio.paused) { raf = requestAnimationFrame(tick); return; }
+      const progress = Math.min(1, (audio.currentTime / audio.duration) + 0.08);
+      let count = 0;
+      for (let i = 0; i < thresholds.length; i++) {
+        if (progress >= thresholds[i]) count = i + 1;
+        else break;
+      }
+      setVisibleCount(count);
+      if (audio.ended) { setVisibleCount(words.length); return; }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [audioRef, words, thresholds]);
+
+  return (
+    <span className={className}>
+      {words.map((word, i) => (
+        <span
+          key={`${word}-${i}`}
+          className="inline-block mr-[0.3em] transition-opacity duration-150"
+          style={{ opacity: i < visibleCount ? 1 : 0 }}
+        >
+          {word}
+        </span>
       ))}
     </span>
   );
@@ -359,6 +420,12 @@ export default function App() {
     return new URLSearchParams(window.location.search).get('onboarding') === '1';
   }, []);
 
+  // /landing route → skip welcome, go straight to language selection (step 2)
+  const isLandingRoute = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return window.location.pathname === '/landing';
+  }, []);
+
   const [state, setState] = useState<NebulaState>(INITIAL_STATE);
   const [isLoading, setIsLoading] = useState(false);
   const [processingStep, setProcessingStep] = useState('');
@@ -378,8 +445,13 @@ export default function App() {
   const [shootingStars, setShootingStars] = useState<string[]>([]);
   const [textInput, setTextInput] = useState('');
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
-  const [isDemoMode, setIsDemoMode] = useState(false);
-  const [demoComplete, setDemoComplete] = useState(false);
+  const [backendDown, setBackendDown] = useState(false);
+
+  // Profile state
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(() => localStorage.getItem('echo_profile_id'));
+  const [showProfilePicker, setShowProfilePicker] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
 
   // Voice HUD state
   const [lastUserText, setLastUserText] = useState('');
@@ -387,11 +459,13 @@ export default function App() {
   const [lastCorrection, setLastCorrection] = useState('');
   const [lastAnalysis, setLastAnalysis] = useState<Message['analysis'] | null>(null);
   const [hudVisible, setHudVisible] = useState(false);
+  const [ttsPlaying, setTtsPlaying] = useState(false);  // true when TTS audio starts
+  const [autoListenPending, setAutoListenPending] = useState(false);
   const hudTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Gamification + mission state (loaded from localStorage)
   const savedState = useMemo(() => loadDailyState(), []);
-  const hasCompletedOnboarding = forceOnboarding ? false : savedState.onboarded;
+  const hasCompletedOnboarding = (forceOnboarding || isLandingRoute) ? false : savedState.onboarded;
   const [xp, setXp] = useState(0);
   const [cefrLevel, setCefrLevel] = useState('A0');
   const [streak, setStreak] = useState(0);
@@ -399,15 +473,19 @@ export default function App() {
   const [combo, setCombo] = useState(0);
   const [dailyMinutes, setDailyMinutes] = useState(savedState.dailyMinutes);
   const [learnerLevel, setLearnerLevel] = useState<LearnerLevel>(savedState.learnerLevel);
+  const [targetLanguage, setTargetLanguage] = useState(savedState.language);
   const [missionIndex, setMissionIndex] = useState(savedState.missionIndex);
   const [missionDone, setMissionDone] = useState<Record<string, boolean>>(savedState.missionDone);
   const [missionsCompletedToday, setMissionsCompletedToday] = useState(savedState.missionsCompletedToday);
-  const [missionExpanded, setMissionExpanded] = useState(false);
+  const [missionExpanded, setMissionExpanded] = useState(true);
+  const [justCheckedTask, setJustCheckedTask] = useState<string | null>(null);
+  const [categoryFocus, setCategoryFocus] = useState<string | null>(null);
   const [lastLatency, setLastLatency] = useState<{ stt: number; llm: number; total: number } | null>(null);
 
   // Onboarding + mascot overlay
   const [showOnboarding, setShowOnboarding] = useState(!hasCompletedOnboarding);
-  const [onboardingStep, setOnboardingStep] = useState(1);
+  // /landing → start at step 2 (language selection), otherwise step 1
+  const [onboardingStep, setOnboardingStep] = useState(isLandingRoute ? 2 : 1);
   const [mascotOverlay, setMascotOverlay] = useState<{ type: MascotOverlayProps['type']; data?: any } | null>(
     !hasCompletedOnboarding ? { type: 'onboarding' } : null
   );
@@ -417,6 +495,7 @@ export default function App() {
   const [showTestGen, setShowTestGen] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
   const [testGenCount, setTestGenCount] = useState(40);
+  const [liveTranscript, setLiveTranscript] = useState('');
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -427,11 +506,15 @@ export default function App() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const silenceStartRef = useRef<number>(0);
   const hasSpokenRef = useRef(false);
+  const speechRecognitionRef = useRef<any>(null);
   const completedMissionRef = useRef<number | null>(null);
   const lastAiTextRef = useRef('');
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
   const ttsFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ttsPlaybackSettledRef = useRef(false);
+  const cachedVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
+  const cachedVoiceLangRef = useRef<string>('');
+  const targetLanguageRef = useRef(targetLanguage);
 
   // Flight mode machine — spaceship navigation through the knowledge nebula
   const flightMachine = useFlightModeMachine(isFlying, state.neurons);
@@ -464,6 +547,32 @@ export default function App() {
     }
   }, [activeMissionSafe.id, showOnboarding]);
 
+  // ── Language-aware browser TTS (replay button) ─────────────────────────
+  const speakInLanguage = useCallback((text: string) => {
+    if (!text || !('speechSynthesis' in window)) return;
+    try {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      const lang = targetLanguageRef.current;
+      const bcp47Map: Record<string, string> = {
+        fr: 'fr-FR', es: 'es-ES', de: 'de-DE', it: 'it-IT', pt: 'pt-PT',
+        ja: 'ja-JP', ko: 'ko-KR', zh: 'zh-CN', ar: 'ar-SA', ru: 'ru-RU',
+        nl: 'nl-NL', tr: 'tr-TR', hi: 'hi-IN', sv: 'sv-SE', pl: 'pl-PL',
+      };
+      u.lang = bcp47Map[lang] || `${lang}-${lang.toUpperCase()}`;
+      u.rate = 1.02;
+      u.volume = 1.0;
+      const voices = window.speechSynthesis.getVoices();
+      const voice =
+        voices.find((v) => (v.lang || '').toLowerCase().startsWith(lang)) ||
+        voices.find((v) => (v.lang || '').toLowerCase().includes(lang));
+      if (voice) u.voice = voice;
+      window.speechSynthesis.speak(u);
+    } catch { /* no-op */ }
+  }, []);
+
+  // ── TTS playback — restored from original working version ─────────────
+  // IMPORTANT: [] deps — uses refs for all dynamic values (no stale closure)
   const playTtsPayload = useCallback((tts: any) => {
     if (!tts) return;
     if (ttsPlaybackSettledRef.current) return;
@@ -477,7 +586,34 @@ export default function App() {
       }
     };
 
-    // Real OpenAI audio — always preferred, cancels any browser speech
+    const speakBrowser = (text: string) => {
+      if (!text || !('speechSynthesis' in window)) return;
+      try {
+        markSpoken();
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        const lang = targetLanguageRef.current;
+        const bcp47Map: Record<string, string> = {
+          fr: 'fr-FR', es: 'es-ES', de: 'de-DE', it: 'it-IT', pt: 'pt-PT',
+          ja: 'ja-JP', ko: 'ko-KR', zh: 'zh-CN', ar: 'ar-SA', ru: 'ru-RU',
+          nl: 'nl-NL', tr: 'tr-TR', hi: 'hi-IN', sv: 'sv-SE', pl: 'pl-PL',
+        };
+        utterance.lang = bcp47Map[lang] || `${lang}-${lang.toUpperCase()}`;
+        utterance.rate = 1.02;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+        const voices = window.speechSynthesis.getVoices();
+        const voice =
+          voices.find((v) => (v.lang || '').toLowerCase().startsWith(lang)) ||
+          voices.find((v) => (v.lang || '').toLowerCase().includes(lang));
+        if (voice) utterance.voice = voice;
+        utterance.onend = () => setAutoListenPending(true);
+        window.speechSynthesis.speak(utterance);
+      } catch {
+        // no-op
+      }
+    };
+
     if (tts.mode === 'audio' && tts.audio_base64) {
       try {
         if (activeAudioRef.current) {
@@ -489,45 +625,27 @@ export default function App() {
         const audio = new Audio(`data:${mime};base64,${tts.audio_base64}`);
         audio.preload = 'auto';
         audio.volume = 1;
-        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-        markSpoken();
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+        }
+        audio.onplay = () => markSpoken();
+        audio.onended = () => setAutoListenPending(true);
+        audio.onerror = () => speakBrowser(fallbackText);
         activeAudioRef.current = audio;
-        audio.play().catch(() => {
-          // Audio playback failed — try browser fallback
-          if (fallbackText && 'speechSynthesis' in window) {
-            const u = new SpeechSynthesisUtterance(fallbackText);
-            u.lang = 'fr-FR'; u.rate = 1.02;
-            window.speechSynthesis.speak(u);
-          }
-        });
+        const playPromise = audio.play();
+        if (playPromise && typeof playPromise.then === 'function') {
+          playPromise.then(() => markSpoken()).catch(() => speakBrowser(fallbackText));
+        } else {
+          markSpoken();
+        }
         return;
       } catch {
-        // fall through to browser TTS
+        speakBrowser(fallbackText);
+        return;
       }
     }
 
-    // Browser TTS — fast fallback. DON'T mark as settled so OpenAI audio
-    // can override when it arrives later (cancel browser speech + play audio).
-    if (fallbackText && 'speechSynthesis' in window) {
-      try {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(fallbackText);
-        utterance.lang = 'fr-FR';
-        utterance.rate = 1.02;
-        utterance.pitch = 1.0;
-        utterance.volume = 1.0;
-        const voices = window.speechSynthesis.getVoices();
-        const frenchVoice =
-          voices.find((v) => (v.lang || '').toLowerCase().startsWith('fr')) ||
-          voices.find((v) => (v.lang || '').toLowerCase().includes('fr'));
-        if (frenchVoice) utterance.voice = frenchVoice;
-        // Mark settled only when speech ends — allows OpenAI audio to override
-        utterance.onend = () => { if (!ttsPlaybackSettledRef.current) markSpoken(); };
-        window.speechSynthesis.speak(utterance);
-      } catch {
-        // no-op
-      }
-    }
+    speakBrowser(fallbackText);
   }, []);
 
   // ── Initialize: check backend availability ───────────────────────────
@@ -536,10 +654,35 @@ export default function App() {
     onStatusStep(setProcessingStep);
     onTTS(playTtsPayload);
 
-    checkBackend().then((backendAvailable) => {
+    // Pre-load target language voice — getVoices() is empty on first call in Chrome
+    const loadVoices = () => {
+      const voices = window.speechSynthesis?.getVoices() || [];
+      const lang = targetLanguageRef.current;
+      const match = voices.find((v) => (v.lang || '').toLowerCase().startsWith(lang));
+      if (match) {
+        cachedVoiceRef.current = match;
+        cachedVoiceLangRef.current = lang;
+      }
+    };
+    loadVoices();
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+
+    checkBackend().then(async (backendAvailable) => {
       if (!backendAvailable) {
-        setIsDemoMode(true);
+        setBackendDown(true);
         setConnectionStatus('failed');
+        return;
+      }
+      // Auto-load saved profile silently (profile picker hidden for now)
+      const savedId = localStorage.getItem('echo_profile_id');
+      if (savedId) {
+        try {
+          await switchProfile(savedId);
+          const graph = await fetchGraphData();
+          setState(prev => ({ ...prev, neurons: graph.neurons, synapses: graph.synapses }));
+        } catch { /* ignore */ }
       }
     });
 
@@ -567,6 +710,10 @@ export default function App() {
   useEffect(() => {
     lastAiTextRef.current = lastAiText;
   }, [lastAiText]);
+
+  useEffect(() => {
+    targetLanguageRef.current = targetLanguage;
+  }, [targetLanguage]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -640,14 +787,13 @@ export default function App() {
     [missionDoneCount, missionTasks.length]
   );
 
-  // Dynamic categories from actual neuron data
+  // Dynamic categories — only show categories that have at least 1 neuron
   const dynamicCategories = useMemo(() => {
     const cats = new Set<Category>();
     state.neurons.forEach(n => cats.add(n.category));
-    const ordered = DEFAULT_CATEGORIES.filter(c => c === 'all' || cats.has(c as Category));
-    // Add 'all' if not present
+    const ordered: (Category | 'all')[] = DEFAULT_CATEGORIES.filter(c => c === 'all' || cats.has(c as Category));
     if (!ordered.includes('all')) ordered.unshift('all');
-    return ordered.length > 1 ? ordered : DEFAULT_CATEGORIES;
+    return ordered;
   }, [state.neurons]);
 
   // Test data generator
@@ -707,21 +853,43 @@ export default function App() {
   };
 
   // ── Send handler (text or audio) ─────────────────────────────────────
-  const handleSend = async (input: string, inputType: 'text' | 'audio' = 'text') => {
+  const handleSend = async (input: string, inputType: 'text' | 'audio' = 'text', isOpener: boolean = false) => {
     if (!input.trim() || isLoading) return;
 
     setIsLoading(true);
+    setLiveTranscript('');
     ttsPlaybackSettledRef.current = false;
+    setTtsPlaying(false);
     triggerShootingStar();
 
     // Expose mission context for backend AI to use
+    // Collect vocab words from the focused category to give the AI context
+    const categoryVocab = categoryFocus
+      ? state.neurons
+          .filter(n => n.category === categoryFocus)
+          .sort((a, b) => b.strength - a.strength)
+          .slice(0, 8)
+          .map(n => n.label)
+      : [];
+
     (window as any).__echeMissionContext = {
-      title: activeMissionSafe.title,
-      objective: activeMissionSafe.objective,
-      starter: activeMissionSafe.objective,
+      title: categoryFocus ? `${categoryFocus} conversation` : activeMissionSafe.title,
+      objective: categoryFocus
+        ? `Talk naturally about topics related to "${categoryFocus}". Use vocabulary the learner already knows from this domain.`
+        : activeMissionSafe.objective,
+      starter: categoryFocus ? activeMissionSafe.objective : activeMissionSafe.objective,
       tasks: missionTasks.map(t => ({ label: t.label, done: t.done })),
       done_count: missionDoneCount,
       total: missionTasks.length,
+      language: targetLanguage,
+      category_focus: categoryFocus || null,
+      category_vocab: categoryVocab,
+      fading_targets: state.neurons
+        .filter(n => n.strength < 0.50 && n.strength >= 0.15)
+        .sort((a, b) => a.strength - b.strength)
+        .slice(0, 5)
+        .map(n => n.label),
+      is_opener: isOpener,
     };
 
     try {
@@ -768,21 +936,6 @@ export default function App() {
       if (lastUser && lastAi) {
         showHud(lastUser.text, lastAi.text, lastAi.correctedForm || '', lastAi.analysis || null);
       }
-      // Instant browser TTS — play voice the MOMENT text arrives, don't wait for OpenAI audio
-      if (lastAi?.text && !ttsPlaybackSettledRef.current && 'speechSynthesis' in window) {
-        try {
-          window.speechSynthesis.cancel();
-          const u = new SpeechSynthesisUtterance(lastAi.text);
-          u.lang = 'fr-FR';
-          u.rate = 1.05;
-          u.volume = 1.0;
-          const voices = window.speechSynthesis.getVoices();
-          const fr = voices.find((v) => (v.lang || '').toLowerCase().startsWith('fr'));
-          if (fr) u.voice = fr;
-          u.onend = () => { if (!ttsPlaybackSettledRef.current) ttsPlaybackSettledRef.current = true; };
-          window.speechSynthesis.speak(u);
-        } catch { /* no-op */ }
-      }
       const maybeErrorMsg = [...msgs].reverse().find(m => m.role === 'ai')?.text || '';
       const isAudioFailure = inputType === 'audio' && maybeErrorMsg.toLowerCase().startsWith('error:');
       if (isAudioFailure) {
@@ -817,21 +970,54 @@ export default function App() {
 
       const analysis = lastAi?.analysis || null;
       const userText = lastUser?.text || '';
+      // Evaluate mission tasks:
+      // - Sequential: must complete in order (main → detail → reuse)
+      // - Max ONE task per turn
       setMissionDone((prev) => {
         const next = { ...prev };
-        let changed = false;
-        for (const task of activeMissionSafe.tasks) {
+        const tasks = activeMissionSafe.tasks;
+        for (let i = 0; i < tasks.length; i++) {
+          const task = tasks[i];
+          // Sequential gate: previous task must be done first (except first task)
+          if (i > 0 && !next[tasks[i - 1].id]) break;
           if (!next[task.id] && evalTask(task.id, activeMissionSafe, analysis?.acceptedUnits || [], userText, quality, fadingTargets, learnerLevel)) {
             next[task.id] = true;
-            changed = true;
+            // Trigger check animation + soft sound
+            setJustCheckedTask(task.id);
+            setTimeout(() => setJustCheckedTask(null), 900);
+            try {
+              const ctx = new AudioContext();
+              const g = ctx.createGain();
+              g.gain.setValueAtTime(0.18, ctx.currentTime);
+              g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+              g.connect(ctx.destination);
+              const o1 = ctx.createOscillator();
+              o1.type = 'sine';
+              o1.frequency.setValueAtTime(880, ctx.currentTime);
+              o1.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.12);
+              o1.connect(g);
+              o1.start(ctx.currentTime);
+              o1.stop(ctx.currentTime + 0.18);
+              const o2 = ctx.createOscillator();
+              o2.type = 'sine';
+              o2.frequency.setValueAtTime(1320, ctx.currentTime + 0.1);
+              o2.connect(g);
+              o2.start(ctx.currentTime + 0.1);
+              o2.stop(ctx.currentTime + 0.35);
+            } catch { /* audio blocked */ }
+            return next; // Only one task per turn
           }
         }
-        return changed ? next : prev;
+        return prev;
       });
 
-      if (isDemoMode && getMockTurnIndex() >= getTotalMockTurns()) {
-        setDemoComplete(true);
+      // One-time "Memories Fade" educational overlay after 3rd turn
+      if (streak === 2 && !localStorage.getItem('echo_fade_intro') && newState.neurons.length >= 3) {
+        localStorage.setItem('echo_fade_intro', '1');
+        setMascotOverlay({ type: 'memory_fade' });
       }
+
+      // (mock mode removed — real backend only)
     } catch (error) {
       console.error("Failed to analyze input:", error);
     } finally {
@@ -850,12 +1036,8 @@ export default function App() {
   };
 
   const handleReplayVoice = useCallback(() => {
-    if (!lastAiText || !('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(lastAiText);
-    utterance.lang = 'fr-FR';
-    utterance.rate = 1.02;
-    window.speechSynthesis.speak(utterance);
+    if (!lastAiText) return;
+    speakInLanguage(lastAiText);
   }, [lastAiText]);
 
   // ── Voice recording with VAD (auto-stop on silence) ─────────────────
@@ -914,6 +1096,28 @@ export default function App() {
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start(100);
       setIsListening(true);
+      setLiveTranscript('');
+
+      // Start browser SpeechRecognition for live preview (visual only — actual STT is Speechmatics)
+      try {
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          const recognition = new SpeechRecognition();
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.lang = targetLanguage === 'zh' ? 'zh-CN' : targetLanguage === 'ar' ? 'ar-SA' : targetLanguage === 'ja' ? 'ja-JP' : targetLanguage === 'ko' ? 'ko-KR' : targetLanguage === 'hi' ? 'hi-IN' : `${targetLanguage}-${targetLanguage.toUpperCase()}`;
+          recognition.onresult = (event: any) => {
+            let interim = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+              interim += event.results[i][0].transcript;
+            }
+            setLiveTranscript(interim);
+          };
+          recognition.onerror = () => {};
+          recognition.start();
+          speechRecognitionRef.current = recognition;
+        }
+      } catch { /* SpeechRecognition not available — silent fail */ }
 
       // VAD: check audio level every 100ms, auto-stop after 1.5s of silence
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -941,14 +1145,16 @@ export default function App() {
       }, 100);
 
     } catch {
-      if (isDemoMode) {
-        handleSend('[mock-advance]');
-      }
+      // Mic access denied or unavailable
     }
   };
 
   const stopRecording = () => {
     if (vadIntervalRef.current) { clearInterval(vadIntervalRef.current); vadIntervalRef.current = null; }
+    if (speechRecognitionRef.current) {
+      try { speechRecognitionRef.current.stop(); } catch { /* ignore */ }
+      speechRecognitionRef.current = null;
+    }
     if (mediaRecorderRef.current?.state === 'recording') {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current = null;
@@ -956,13 +1162,21 @@ export default function App() {
     setIsListening(false);
   };
 
+  // Auto-start mic after TTS finishes playing
+  useEffect(() => {
+    if (autoListenPending && !isLoading && !isListening && !voiceFallbackMode && !isFlying) {
+      setAutoListenPending(false);
+      startRecording();
+    } else if (autoListenPending) {
+      setAutoListenPending(false);
+    }
+  }, [autoListenPending, isLoading, isListening, voiceFallbackMode, isFlying]);
+
   const handleVoiceToggle = () => {
-    if (isLoading || demoComplete || voiceFallbackMode) return;
+    if (isLoading || voiceFallbackMode || backendDown) return;
 
     if (isListening) {
       stopRecording();
-    } else if (isDemoMode) {
-      handleSend('[mock-advance]');
     } else {
       startRecording();
     }
@@ -975,7 +1189,6 @@ export default function App() {
     }
     resetMockState();
     setState(INITIAL_STATE);
-    setDemoComplete(false);
     setVoiceFallbackMode(false);
     setAudioFailStreak(0);
     setHudVisible(false);
@@ -1017,10 +1230,10 @@ export default function App() {
   }, [searchQuery, state.neurons]);
 
   // ── Connection badge ─────────────────────────────────────────────────
-  const connectionBadge = isDemoMode ? (
-    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/15 border border-blue-400/20 text-blue-300 text-[10px] uppercase tracking-widest font-bold">
+  const connectionBadge = backendDown ? (
+    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-500/15 border border-red-400/20 text-red-300 text-[10px] uppercase tracking-widest font-bold">
       <WifiOff size={10} />
-      <span>Demo Mode</span>
+      <span>Offline</span>
     </div>
   ) : connectionStatus === 'connected' ? (
     <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/15 border border-blue-400/20 text-blue-300 text-[10px] uppercase tracking-widest font-bold">
@@ -1064,6 +1277,19 @@ export default function App() {
     .replace(/^\s*(?:Mission\s+)?(?:[ABC][12](?:[+-])?(?:\s*[-/]\s*(?:[ABC])?[12](?:[+-])?)?)\s*(?:[-–:：])\s*/i, '')
     .trim();
 
+  const handleProfileSelect = async (profileId: string) => {
+    setProfileLoading(true);
+    const ok = await switchProfile(profileId);
+    if (ok) {
+      setActiveProfileId(profileId);
+      localStorage.setItem('echo_profile_id', profileId);
+      const graph = await fetchGraphData();
+      setState(prev => ({ ...prev, neurons: graph.neurons, synapses: graph.synapses }));
+    }
+    setProfileLoading(false);
+    setShowProfilePicker(false);
+  };
+
   return (
     <div className="relative w-full h-screen overflow-hidden text-white font-sans bg-[#020510]">
       {/* 3D Nebula — always full screen */}
@@ -1104,12 +1330,12 @@ export default function App() {
         />
       </ErrorBoundary>
       {canvasFailed && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[70] px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs pointer-events-none">
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[70] px-3 py-1 rounded-full bg-blue-500/15 border border-blue-400/25 text-blue-300 text-xs pointer-events-none">
           3D recovered mode active
         </div>
       )}
       {linkInspector && (
-        <div className="absolute top-14 right-6 z-[70] w-[360px] bg-black/70 backdrop-blur-xl border border-cyan-400/25 rounded-2xl p-4 shadow-2xl pointer-events-auto">
+        <div className="absolute top-14 right-6 z-[70] w-[360px] bg-white/[0.07] backdrop-blur-2xl border border-white/[0.14] rounded-2xl p-4 shadow-[0_16px_50px_rgba(0,0,0,0.35)] pointer-events-auto">
           <div className="flex items-center justify-between mb-2">
             <div className="text-[10px] uppercase tracking-widest text-cyan-200/75 font-bold">Link Explanation</div>
             <button
@@ -1139,63 +1365,63 @@ export default function App() {
       {/* ── Flight Mode UI Overlays ─────────────────────────────── */}
       {isFlying && (
         <>
-          {/* Flight status bar */}
+          {/* Flight status bar + choice buttons — single top row */}
           <AnimatePresence>
             {flightMachine.phase !== 'hidden' && (
               <motion.div
                 initial={{ opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="absolute top-4 left-1/2 -translate-x-1/2 z-[80] pointer-events-none"
+                className="absolute bottom-8 left-1/2 -translate-x-1/2 z-[80] pointer-events-auto"
               >
-                <div className="px-5 py-2 rounded-full bg-slate-950/70 backdrop-blur-xl border border-cyan-300/20 shadow-[0_0_24px_rgba(56,189,248,0.16)]">
-                  <div className="flex items-center gap-3 text-cyan-100 text-xs">
-                    <Rocket size={14} className={flightMachine.phase === 'relightTravel' || flightMachine.phase === 'exploreTravel' ? 'animate-pulse' : ''} />
-                    <span className="font-semibold uppercase tracking-wider">
-                      {flightMachine.phase === 'appear' || flightMachine.phase === 'idle' ? 'Ship Online — Choose your mission' :
-                       flightMachine.phase === 'choose' ? 'Awaiting flight orders' :
-                       flightMachine.phase === 'relightTravel' ? 'Navigating to fading memory...' :
-                       flightMachine.phase === 'exploreTravel' ? 'Charting new territory...' :
-                       flightMachine.phase === 'focus' ? 'Approaching target zone...' :
-                       flightMachine.phase === 'starcoreOpen' ? (flightMachine.branch === 'relight' ? 'Memory Recalibration Ready' : 'Frontier Synthesis Ready') :
-                       'Navigation Active'}
-                    </span>
-                  </div>
+                <div className="flex items-center gap-3 px-5 py-2 rounded-full bg-white/[0.07] backdrop-blur-2xl border border-white/[0.14] shadow-[0_8px_24px_rgba(0,0,0,0.30)]">
+                  <Rocket size={14} className={`text-cyan-100 ${flightMachine.phase === 'relightTravel' || flightMachine.phase === 'exploreTravel' ? 'animate-pulse' : ''}`} />
+                  <span className="font-semibold uppercase tracking-wider text-cyan-100 text-xs">
+                    {flightMachine.phase === 'appear' || flightMachine.phase === 'idle' ? 'Ship Online' :
+                     flightMachine.phase === 'choose' ? 'Choose mission' :
+                     flightMachine.phase === 'relightTravel' ? 'Navigating...' :
+                     flightMachine.phase === 'exploreTravel' ? 'Exploring...' :
+                     flightMachine.phase === 'focus' ? 'Approaching...' :
+                     flightMachine.phase === 'starcoreOpen' ? (flightMachine.branch === 'relight' ? 'Recalibration' : 'Synthesis') :
+                     'Active'}
+                  </span>
+                  {flightMachine.phase === 'choose' && (
+                    <>
+                      <div className="w-px h-4 bg-cyan-300/20" />
+                      <button
+                        onClick={() => flightMachine.chooseBranch('explore')}
+                        className="px-3 py-1 rounded-full border border-cyan-200/25 bg-cyan-500/10 text-[11px] font-semibold uppercase tracking-wider text-cyan-100 hover:border-cyan-200/45 hover:bg-cyan-400/15 transition"
+                      >
+                        Explore
+                      </button>
+                      <button
+                        onClick={() => flightMachine.chooseBranch('relight')}
+                        className="px-3 py-1 rounded-full border border-sky-200/25 bg-sky-500/10 text-[11px] font-semibold uppercase tracking-wider text-sky-100 hover:border-sky-200/45 hover:bg-sky-400/15 transition"
+                      >
+                        Relight
+                      </button>
+                    </>
+                  )}
                 </div>
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* Flight mode choice (Explore / Relight) — centered bottom */}
-          <div className="absolute bottom-32 left-1/2 -translate-x-1/2 z-[80]">
-            <FlightModeChoice
-              visible={flightMachine.phase === 'choose'}
-              onExplore={() => flightMachine.chooseBranch('explore')}
-              onRelight={() => flightMachine.chooseBranch('relight')}
-            />
-          </div>
-
-          {/* Starcore side panel — right side */}
+          {/* Starcore — centered overlay */}
           <AnimatePresence>
             {flightMachine.phase === 'starcoreOpen' && !isStarcoreSessionOpen && (
               <motion.div
-                initial={{ x: 400, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: 400, opacity: 0 }}
-                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                className="absolute top-20 right-6 bottom-32 z-[80] w-[340px] pointer-events-auto"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 z-[80] flex items-center justify-center pointer-events-auto bg-black/60 backdrop-blur-xl"
               >
                 <StarcorePanel
                   branch={flightMachine.branch}
                   targetLabel={flightMachine.decayingNeuron?.label}
                   onOpenSession={() => setIsStarcoreSessionOpen(true)}
+                  onReturn={() => { flightMachine.returnToIdle(); setIsStarcoreSessionOpen(false); }}
                 />
-                <button
-                  onClick={() => { flightMachine.returnToIdle(); setIsStarcoreSessionOpen(false); }}
-                  className="mt-3 w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-white/60 transition hover:bg-white/10 hover:text-white/80"
-                >
-                  Return to Nebula
-                </button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -1208,7 +1434,7 @@ export default function App() {
                 animate={{ x: 0, opacity: 1 }}
                 exit={{ x: 400, opacity: 0 }}
                 transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                className="absolute top-4 right-6 bottom-32 z-[80] w-[380px] pointer-events-auto rounded-2xl border border-cyan-300/20 bg-slate-950/80 backdrop-blur-2xl shadow-[0_20px_60px_rgba(14,116,144,0.35)] overflow-hidden"
+                className="absolute top-4 right-6 bottom-32 z-[80] w-[380px] pointer-events-auto rounded-2xl border border-white/[0.14] bg-white/[0.07] backdrop-blur-2xl shadow-[0_16px_50px_rgba(0,0,0,0.35)] overflow-hidden"
               >
                 <StarcoreSessionView
                   branch={flightMachine.branch}
@@ -1236,29 +1462,29 @@ export default function App() {
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.15 }}
-              className="pointer-events-auto self-start ml-6 relative overflow-hidden bg-white/[0.07] backdrop-blur-xl border border-white/[0.14] p-5 rounded-[28px] w-[500px] max-w-[calc(100vw-3rem)] shadow-[0_16px_50px_rgba(0,0,0,0.35)]"
+              className="pointer-events-auto self-start ml-6 relative overflow-hidden bg-white/[0.07] backdrop-blur-xl border border-white/[0.14] p-4 rounded-2xl w-[380px] max-w-[calc(100vw-3rem)] shadow-[0_16px_50px_rgba(0,0,0,0.35)]"
             >
-              <div className="text-[11px] uppercase tracking-[0.18em] text-white/35 font-semibold mb-1">
-                Mission {Math.min(missionsCompletedToday + 1, missionDeck.length)}/{missionDeck.length} today — {dailyMinutes} min
+              <div className="text-[10px] uppercase tracking-[0.18em] text-white/35 font-semibold mb-1">
+                Mission {Math.min(missionsCompletedToday + 1, missionDeck.length)}/{missionDeck.length} — {dailyMinutes} min
               </div>
-              <div className="flex items-start justify-between gap-3 mb-3">
+              <div className="flex items-start justify-between gap-3 mb-2">
                 <div>
                   <motion.p
                     initial={{ opacity: 0, y: 6 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="text-[32px] text-white leading-[1.06] mt-1 font-semibold"
+                    className="text-xl text-white leading-tight mt-0.5 font-semibold"
                   >
                     {activeMissionSafe.title}
                   </motion.p>
-                  <p className="text-[16px] text-white/60 mt-1">{liveMissionObjective}</p>
+                  <p className="text-[13px] text-white/50 mt-0.5">{liveMissionObjective}</p>
                 </div>
-                <div className="px-3 py-1.5 rounded-full bg-blue-500/15 border border-blue-400/25 text-base font-mono text-blue-300">
+                <div className="px-2.5 py-1 rounded-full bg-blue-500/15 border border-blue-400/25 text-sm font-mono text-blue-300">
                   {missionDoneCount}/{missionTasks.length}
                 </div>
               </div>
 
-              <div className="mb-4">
-                <div className="w-full h-2.5 rounded-full bg-white/[0.10] border border-white/[0.12] overflow-hidden">
+              <div className="mb-3">
+                <div className="w-full h-2 rounded-full bg-white/[0.10] border border-white/[0.12] overflow-hidden">
                   <motion.div
                     initial={{ width: 0 }}
                     animate={{ width: `${missionProgressPct}%` }}
@@ -1267,36 +1493,51 @@ export default function App() {
                   />
                 </div>
               </div>
-              <button
-                onClick={() => setMissionExpanded((v) => !v)}
-                className="w-full mt-1 text-left text-sm text-blue-300/80 hover:text-blue-200 transition-colors"
-              >
-                {missionExpanded ? 'Hide tasks' : 'Show tasks'}
-              </button>
-
-              {missionExpanded && (
-                <>
-                  <div className="space-y-2.5 mt-3">
-                    {missionTasks.map((task) => {
-                      const checked = task.done;
-                      return (
-                        <div
-                          key={task.id}
-                          className={`w-full text-left flex items-center gap-3 rounded-xl px-4 py-3 border transition-all ${
-                            checked
-                              ? 'bg-blue-500/15 border-blue-400/30 text-blue-200'
-                              : 'bg-white/[0.06] border-white/[0.10] text-white/70 hover:bg-white/[0.10]'
-                          }`}
+              <div className="space-y-2 mt-3">
+                {missionTasks.map((task) => {
+                  const checked = task.done;
+                  const justChecked = justCheckedTask === task.id;
+                  return (
+                    <motion.div
+                      key={task.id}
+                      animate={justChecked ? {
+                        scale: [1, 1.04, 1],
+                        boxShadow: ['0 0 0px rgba(96,165,250,0)', '0 0 18px rgba(96,165,250,0.55)', '0 0 6px rgba(96,165,250,0.15)'],
+                      } : {}}
+                      transition={{ duration: 0.55, ease: 'easeOut' }}
+                      className={`w-full text-left flex items-center gap-3 rounded-xl px-4 py-3 border transition-colors duration-300 ${
+                        checked
+                          ? 'bg-blue-500/15 border-blue-400/30 text-blue-200'
+                          : 'bg-white/[0.06] border-white/[0.10] text-white/60'
+                      }`}
+                    >
+                      <motion.div
+                        animate={justChecked ? { scale: [0.5, 1.3, 1], rotate: [0, 15, 0] } : {}}
+                        transition={{ duration: 0.45, ease: 'backOut' }}
+                        className="flex-shrink-0"
+                      >
+                        {checked
+                          ? <CheckCircle2 size={17} className="text-blue-400" />
+                          : <Circle size={17} className="text-white/25" />}
+                      </motion.div>
+                      <span className={`text-[13px] leading-snug transition-all duration-300 ${checked ? 'line-through opacity-60' : ''}`}>
+                        {task.label}
+                      </span>
+                      {justChecked && (
+                        <motion.span
+                          initial={{ opacity: 0, x: -6 }}
+                          animate={{ opacity: [0, 1, 0], x: [0, 8, 16] }}
+                          transition={{ duration: 0.7 }}
+                          className="ml-auto text-blue-300 text-xs font-semibold"
                         >
-                          {checked ? <CheckCircle2 size={17} className="text-blue-400 flex-shrink-0" /> : <Circle size={17} className="text-white/30 flex-shrink-0" />}
-                          <span className="text-[16px] leading-snug">{task.label}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
+                          ✓ done
+                        </motion.span>
+                      )}
+                    </motion.div>
+                  );
+                })}
+              </div>
 
-                </>
-              )}
             </motion.div>
 
             <motion.div
@@ -1309,7 +1550,7 @@ export default function App() {
                 onClick={() => setShowFilter(v => !v)}
                 className="w-full flex items-center justify-between p-4 text-left hover:bg-white/[0.04] transition-colors"
               >
-                <span className="text-[10px] uppercase tracking-[0.18em] text-white/45 font-semibold">Worlds</span>
+                <span className="text-[10px] uppercase tracking-[0.18em] text-white/45 font-semibold">Categories</span>
                 <ChevronDown size={14} className={`text-white/30 transition-transform ${showFilter ? 'rotate-180' : ''}`} />
               </button>
               <AnimatePresence>
@@ -1321,29 +1562,91 @@ export default function App() {
                     transition={{ duration: 0.2 }}
                     className="overflow-hidden"
                   >
-                    <div className="flex flex-col gap-2.5 px-4 pb-4">
+                    <div className="flex flex-col gap-2 px-4 pb-4">
                       {dynamicCategories.map((cat) => {
                         const active = filterCategory === cat;
+                        const isFocused = categoryFocus === cat;
                         const count = cat === 'all' ? state.neurons.length : state.neurons.filter(n => n.category === cat).length;
                         return (
-                          <button
-                            key={cat}
-                            onClick={() => setFilterCategory(cat)}
-                            className={`px-4 py-3 rounded-xl border text-sm font-medium tracking-wide transition-all text-left flex items-center justify-between ${
-                              active
-                                ? 'bg-blue-500/25 text-white border-blue-400/40 shadow-[0_0_14px_rgba(59,130,246,0.25)]'
-                                : 'bg-white/[0.05] text-white/55 border-white/[0.08] hover:bg-white/[0.12] hover:text-white/80'
-                            }`}
-                          >
-                            <span className="capitalize">{cat === 'all' ? 'All' : cat}</span>
-                            {count > 0 && (
-                              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${active ? 'bg-white/15 text-white/80' : 'bg-white/[0.06] text-white/35'}`}>
-                                {count}
-                              </span>
-                            )}
-                          </button>
+                          <div key={cat} className="flex flex-col gap-1">
+                            <button
+                              onClick={() => {
+                                setFilterCategory(cat);
+                                if (cat !== 'all') setCategoryFocus(prev => prev === cat ? null : cat);
+                                else setCategoryFocus(null);
+                              }}
+                              className={`px-3 py-2.5 rounded-xl border text-sm font-medium tracking-wide transition-all text-left flex items-center justify-between ${
+                                active
+                                  ? isFocused
+                                    ? 'bg-violet-500/20 text-white border-violet-400/40 shadow-[0_0_14px_rgba(139,92,246,0.25)]'
+                                    : 'bg-blue-500/25 text-white border-blue-400/40 shadow-[0_0_14px_rgba(59,130,246,0.25)]'
+                                  : 'bg-white/[0.05] text-white/55 border-white/[0.08] hover:bg-white/[0.12] hover:text-white/80'
+                              }`}
+                            >
+                              <span className="capitalize">{cat === 'all' ? 'All' : cat}</span>
+                              <div className="flex items-center gap-1.5">
+                                {isFocused && (
+                                  <span className="text-[9px] font-bold uppercase tracking-wider text-violet-300 bg-violet-500/20 px-1.5 py-0.5 rounded-full">
+                                    focus
+                                  </span>
+                                )}
+                                {count > 0 && (
+                                  <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${active ? 'bg-white/15 text-white/80' : 'bg-white/[0.06] text-white/35'}`}>
+                                    {count}
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+
+                            {/* Talk about this category CTA */}
+                            <AnimatePresence>
+                              {active && cat !== 'all' && (
+                                <motion.button
+                                  initial={{ opacity: 0, height: 0 }}
+                                  animate={{ opacity: 1, height: 'auto' }}
+                                  exit={{ opacity: 0, height: 0 }}
+                                  transition={{ duration: 0.18 }}
+                                  onClick={() => {
+                                    setCategoryFocus(cat);
+                                    // Send a short neutral opener so the AI can lead the conversation
+                                    // Use a simple greeting in the target language — the category context
+                                    // is already in __echeMissionContext so the AI will steer toward the domain
+                                    const OPENERS: Record<string, string> = {
+                                      fr: 'Allons-y !', es: '¡Vamos!', de: 'Los geht\'s!',
+                                      it: 'Andiamo!', pt: 'Vamos!', ja: 'さあ、始めましょう！',
+                                      ko: '시작합시다!', zh: '我们开始吧！', ar: 'هيا نبدأ!',
+                                      ru: 'Поехали!', nl: 'Laten we beginnen!', tr: 'Haydi başlayalım!',
+                                      hi: 'चलो शुरू करते हैं!', sv: 'Nu kör vi!', pl: 'Zaczynajmy!',
+                                    };
+                                    const opener = OPENERS[targetLanguage] || 'Let\'s go!';
+                                    setTextInput('');
+                                    setTimeout(() => handleSend(opener, 'text', true), 80);
+                                  }}
+                                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-violet-500/15 hover:bg-violet-500/25 border border-violet-400/25 text-violet-200 text-[12px] font-semibold transition-all"
+                                >
+                                  <Rocket size={12} className="flex-shrink-0" />
+                                  <span>Talk about {cat}</span>
+                                </motion.button>
+                              )}
+                            </AnimatePresence>
+                          </div>
                         );
                       })}
+
+                      {/* Clear focus banner */}
+                      <AnimatePresence>
+                        {categoryFocus && (
+                          <motion.button
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => setCategoryFocus(null)}
+                            className="mt-1 w-full text-center text-[11px] text-white/35 hover:text-white/60 transition-colors py-1"
+                          >
+                            × Clear focus
+                          </motion.button>
+                        )}
+                      </AnimatePresence>
                     </div>
                   </motion.div>
                 )}
@@ -1404,11 +1707,12 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => setShowDashboard(true)}
-                  className="w-10 h-10 rounded-xl flex items-center justify-center border transition-all bg-white/[0.08] border-white/[0.14] text-white/50 hover:bg-amber-500/20 hover:border-amber-400/30 hover:text-amber-300"
+                  className="w-10 h-10 rounded-xl flex items-center justify-center border transition-all bg-white/[0.08] border-white/[0.14] text-white/50 hover:bg-white/[0.14] hover:text-white/70"
                   title="Dashboard"
                 >
                   <BarChart2 size={16} />
                 </button>
+                {/* Profile picker hidden for now */}
                 <button
                   onClick={handleReset}
                   className="w-10 h-10 rounded-xl flex items-center justify-center border transition-all bg-white/[0.08] border-white/[0.14] text-white/50 hover:bg-red-500/20 hover:border-red-400/30 hover:text-red-300"
@@ -1421,7 +1725,7 @@ export default function App() {
                     onClick={() => setShowTestGen(v => !v)}
                     className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all ${
                       showTestGen
-                        ? 'bg-purple-500/25 border-purple-400/40 text-purple-300 shadow-[0_0_14px_rgba(168,85,247,0.3)]'
+                        ? 'bg-blue-500/20 border-blue-400/30 text-blue-300 shadow-[0_0_14px_rgba(59,130,246,0.3)]'
                         : 'bg-white/[0.08] border-white/[0.14] text-white/50 hover:bg-white/[0.14] hover:text-white/70'
                     }`}
                     title="Test Data Generator"
@@ -1434,18 +1738,18 @@ export default function App() {
                         initial={{ opacity: 0, scale: 0.9, y: -10 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.9, y: -10 }}
-                        className="absolute right-0 top-12 w-[300px] bg-black/70 backdrop-blur-2xl border border-white/[0.12] rounded-2xl p-5 shadow-[0_16px_50px_rgba(0,0,0,0.5)] z-50"
+                        className="absolute right-0 top-12 w-[300px] bg-white/[0.07] backdrop-blur-2xl border border-white/[0.14] rounded-2xl p-5 shadow-[0_16px_50px_rgba(0,0,0,0.35)] z-50"
                       >
                         <div className="flex items-center gap-2 mb-3">
-                          <FlaskConical size={16} className="text-purple-400" />
+                          <FlaskConical size={16} className="text-blue-400" />
                           <span className="text-sm font-bold uppercase tracking-wider text-white/90">Test Data Generator</span>
                         </div>
                         <p className="text-xs text-white/40 mb-4">
-                          Generate realistic French neurons across multiple categories.
+                          Generate test neurons across multiple categories.
                         </p>
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-[10px] uppercase tracking-widest text-white/50 font-bold">Neuron Count</span>
-                          <span className="text-sm font-mono font-bold text-purple-300">{testGenCount}</span>
+                          <span className="text-sm font-mono font-bold text-blue-300">{testGenCount}</span>
                         </div>
                         <input
                           type="range"
@@ -1453,7 +1757,7 @@ export default function App() {
                           max={100}
                           value={testGenCount}
                           onChange={e => setTestGenCount(Number(e.target.value))}
-                          className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer mb-2 accent-purple-500"
+                          className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer mb-2 accent-blue-500"
                         />
                         <div className="flex justify-between text-[10px] text-white/30 mb-3">
                           <span>5</span>
@@ -1466,7 +1770,7 @@ export default function App() {
                               onClick={() => setTestGenCount(n)}
                               className={`flex-1 py-1.5 rounded-lg border text-xs font-bold transition-all ${
                                 testGenCount === n
-                                  ? 'bg-purple-500/20 border-purple-400/30 text-purple-300'
+                                  ? 'bg-blue-500/20 border-blue-400/30 text-blue-300'
                                   : 'bg-white/[0.05] border-white/[0.08] text-white/40 hover:bg-white/[0.10]'
                               }`}
                             >
@@ -1476,7 +1780,7 @@ export default function App() {
                         </div>
                         <button
                           onClick={handleGenerateTestData}
-                          className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-sm uppercase tracking-wider transition-all shadow-[0_0_20px_rgba(168,85,247,0.3)] hover:shadow-[0_0_30px_rgba(168,85,247,0.5)]"
+                          className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm uppercase tracking-wider transition-all shadow-[0_0_20px_rgba(59,130,246,0.3)] hover:shadow-[0_0_30px_rgba(59,130,246,0.5)]"
                         >
                           <span className="flex items-center justify-center gap-2">
                             <Sparkles size={14} />
@@ -1546,20 +1850,23 @@ export default function App() {
                     </motion.div>
                   )}
 
-                  {/* AI response */}
+                  {/* AI response — words appear synced with TTS audio playback */}
                   {lastAiText && (
                     <div className="flex items-start gap-3 mb-3">
                       <div className="w-6 h-6 rounded-md bg-blue-500/10 border border-blue-400/20 flex items-center justify-center flex-shrink-0 mt-0.5">
                         <Bot size={12} className="text-blue-300" />
                       </div>
                       <div className="text-[17px] text-white/80 leading-snug">
-                        <AnimatedText text={lastAiText} delay={0.4} />
+                        {ttsPlaying
+                          ? <AudioSyncedText text={lastAiText} audioRef={activeAudioRef} />
+                          : <AnimatedText text={lastAiText} msPerWord={40} />
+                        }
                       </div>
                     </div>
                   )}
 
-                  {/* Accepted canonical units */}
-                  {lastAnalysis && (((lastAnalysis.acceptedUnits?.length || 0) > 0) || lastAnalysis.vocabulary.length > 0) && (
+                  {/* Accepted canonical units — show after TTS starts */}
+                  {ttsPlaying && lastAnalysis && (((lastAnalysis.acceptedUnits?.length || 0) > 0) || lastAnalysis.vocabulary.length > 0) && (
                     <motion.div
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
@@ -1611,6 +1918,23 @@ export default function App() {
               )}
             </AnimatePresence>
 
+            {/* Live transcription preview while recording */}
+            <AnimatePresence>
+              {isListening && liveTranscript && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 5 }}
+                  className="w-full bg-white/[0.06] backdrop-blur-xl border border-violet-400/20 rounded-2xl px-4 py-3 shadow-[0_8px_20px_rgba(0,0,0,0.25)]"
+                >
+                  <div className="flex items-start gap-2">
+                    <div className="w-2 h-2 rounded-full bg-violet-400 animate-pulse mt-1.5 flex-shrink-0" />
+                    <p className="text-[16px] text-white/80 leading-snug italic">{liveTranscript}</p>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* Processing status */}
             <AnimatePresence>
               {isLoading && (
@@ -1618,7 +1942,7 @@ export default function App() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0 }}
-                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-black/40 backdrop-blur-md border border-white/10"
+                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.07] backdrop-blur-xl border border-white/[0.14]"
                 >
                   <Loader2 className="animate-spin text-blue-400" size={14} />
                   <span className="text-xs text-white/60 uppercase tracking-widest">{stepLabel}</span>
@@ -1626,47 +1950,39 @@ export default function App() {
               )}
             </AnimatePresence>
 
-            {/* Text input (compact, above mic) */}
-            <form onSubmit={handleTextSubmit} className="flex gap-2 w-full max-w-sm">
+            {/* Text input (compact, above mic) — hidden during flight mode */}
+            <form onSubmit={handleTextSubmit} className={`flex gap-2 w-full max-w-sm ${isFlying ? 'hidden' : ''}`}>
               <input
                 type="text"
                 value={textInput}
                 onChange={(e) => setTextInput(e.target.value)}
-                placeholder={isDemoMode ? "Type or tap mic..." : "Type in French..."}
-                disabled={isLoading || demoComplete}
+                placeholder={`Type in ${SUPPORTED_LANGUAGES.find(l => l.code === targetLanguage)?.name ?? 'your language'}...`}
+                disabled={isLoading || backendDown}
                 className="flex-1 bg-white/[0.08] backdrop-blur-xl border border-white/[0.14] rounded-full px-4 py-2.5 text-sm text-white placeholder:text-white/35 focus:outline-none focus:border-blue-400/40 transition-all disabled:opacity-50"
               />
               <button
                 type="submit"
-                disabled={isLoading || !textInput.trim() || demoComplete}
+                disabled={isLoading || !textInput.trim() || backendDown}
                 className="px-3.5 py-2.5 bg-white/[0.08] border border-white/[0.14] rounded-full text-white/70 hover:bg-white/[0.16] transition-all disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <Send size={16} />
               </button>
-              <button
-                type="button"
-                onClick={handleReplayVoice}
-                disabled={!lastAiText}
-                className="px-3.5 py-2.5 bg-white/[0.08] border border-white/[0.14] rounded-full text-white/70 hover:bg-white/[0.16] transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                title="Replay agent voice"
-              >
-                <Volume2 size={16} />
-              </button>
             </form>
 
-            {/* Central mic button */}
+            {/* Central mic + stop button — hidden during flight mode */}
+            <div className={`relative ${isFlying ? 'hidden' : ''}`}>
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={handleVoiceToggle}
-              disabled={isLoading || demoComplete || voiceFallbackMode}
+              disabled={isLoading || backendDown || voiceFallbackMode}
               className={`group relative w-20 h-20 rounded-full flex items-center justify-center transition-all duration-500 ${
-                demoComplete
+                backendDown
                   ? 'bg-white/10 cursor-not-allowed'
                   : voiceFallbackMode
                     ? 'bg-amber-500/30 cursor-not-allowed'
                   : isListening
-                    ? 'bg-red-500 shadow-[0_0_60px_rgba(239,68,68,0.6)]'
+                    ? 'bg-violet-600 shadow-[0_0_60px_rgba(139,92,246,0.6)]'
                     : 'bg-[#2f4cb8] shadow-[0_0_40px_rgba(47,76,184,0.35)] hover:shadow-[0_0_60px_rgba(47,76,184,0.55)]'
               }`}
             >
@@ -1679,13 +1995,13 @@ export default function App() {
 
               {isListening && (
                 <>
-                  <div className="absolute -inset-3 border border-red-500/30 rounded-full animate-[ping_1.5s_infinite]" />
-                  <div className="absolute -inset-6 border border-red-500/10 rounded-full animate-[ping_2s_infinite]" />
+                  <div className="absolute -inset-3 border border-violet-500/30 rounded-full animate-[ping_1.5s_infinite]" />
+                  <div className="absolute -inset-6 border border-violet-500/10 rounded-full animate-[ping_2s_infinite]" />
                 </>
               )}
 
               {/* Onboarding: pulsing ring when no neurons yet */}
-              {state.neurons.length === 0 && !isListening && !isLoading && !demoComplete && (
+              {state.neurons.length === 0 && !isListening && !isLoading && !backendDown && (
                 <motion.div
                   animate={{ scale: [1, 1.3, 1], opacity: [0.6, 0.2, 0.6] }}
                   transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
@@ -1693,15 +2009,29 @@ export default function App() {
                 />
               )}
             </motion.button>
+            {(isListening || isLoading) && (
+              <button
+                onClick={() => {
+                  setAutoListenPending(false);
+                  stopRecording();
+                  if (activeAudioRef.current) { activeAudioRef.current.pause(); activeAudioRef.current = null; }
+                }}
+                className="absolute -right-12 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/[0.08] border border-white/[0.14] flex items-center justify-center text-white/40 hover:bg-white/[0.14] hover:text-white/70 transition-all"
+                title="Stop"
+              >
+                <div className="w-2.5 h-2.5 rounded-[2px] bg-current" />
+              </button>
+            )}
+            </div>
 
-            {/* Status text under mic */}
-            <div className="text-center mb-2">
+            {/* Status text under mic — hidden during flight mode */}
+            <div className={`text-center mb-2 ${isFlying ? 'hidden' : ''}`}>
               <p className="text-xs font-medium text-white/50 uppercase tracking-[0.3em]">
-                {demoComplete ? 'Demo Complete — tap reset' :
+                {backendDown ? 'Backend offline — check connection' :
                  isListening ? 'Listening... tap to send' :
                  voiceFallbackMode ? 'Voice fallback active — type text' :
                  isLoading ? stepLabel :
-                 isDemoMode ? 'Tap to advance demo' : 'Tap to Speak'}
+                 'Tap to Speak'}
               </p>
               {voiceFallbackMode && (
                 <p className="text-[10px] text-amber-300/70 mt-1">
@@ -1722,24 +2052,36 @@ export default function App() {
           onboardingStep={onboardingStep}
           selectedMinutes={dailyMinutes}
           selectedLevel={learnerLevel}
+          selectedLanguage={targetLanguage}
+          onSelectLanguage={(code: string) => {
+            setTargetLanguage(code);
+            // Reset session when language changes so old-language nodes don't persist
+            if (code !== targetLanguage) {
+              if (isUsingBackend()) hardResetSession();
+              resetMockState();
+              setState(INITIAL_STATE);
+            }
+            setOnboardingStep(3);
+            setMascotOverlay({ type: 'onboarding', data: { language: code } });
+          }}
           onSelectMinutes={(m: number) => {
             setDailyMinutes(m);
-            setOnboardingStep(3);
+            setOnboardingStep(4);
             setMascotOverlay({ type: 'onboarding', data: { minutes: m } });
           }}
           onSelectLevel={(level: LearnerLevel) => {
             setLearnerLevel(level);
-            setOnboardingStep(4);
-            setMascotOverlay({ type: 'onboarding', data: { minutes: dailyMinutes, level } });
+            setOnboardingStep(5);
+            setMascotOverlay({ type: 'onboarding', data: { minutes: dailyMinutes, level, language: targetLanguage } });
           }}
           onDismiss={() => {
             if (mascotOverlay.type === 'onboarding') {
-              if (onboardingStep < 4) {
+              if (onboardingStep < 5) {
                 setOnboardingStep((s) => s + 1);
                 setMascotOverlay({ type: 'onboarding' });
               } else {
                 // Onboarding complete
-                saveOnboarding(dailyMinutes, learnerLevel);
+                saveOnboarding(dailyMinutes, learnerLevel, targetLanguage);
                 setShowOnboarding(false);
                 setMascotOverlay({ type: 'mission_intro', data: activeMissionSafe });
               }
@@ -1751,7 +2093,7 @@ export default function App() {
       )}
 
       {/* ── Dashboard ──────────────────────────────────────────────── */}
-      <Dashboard isOpen={showDashboard} onClose={() => setShowDashboard(false)} />
+      <Dashboard isOpen={showDashboard} onClose={() => setShowDashboard(false)} neurons={state.neurons} synapses={state.synapses} />
 
       {/* ── Neuron Detail Modal ──────────────────────────────────────── */}
       <AnimatePresence>
@@ -1762,13 +2104,12 @@ export default function App() {
             exit={{ opacity: 0, scale: 0.9, y: 20 }}
             className="absolute left-1/2 top-1/3 -translate-x-1/2 -translate-y-1/2 w-[400px] pointer-events-auto z-50"
           >
-            <div className="bg-black/60 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-2xl overflow-hidden relative">
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-blue-500 to-transparent opacity-50" />
+            <div className="bg-white/[0.07] backdrop-blur-2xl border border-white/[0.14] rounded-[28px] p-6 shadow-[0_16px_50px_rgba(0,0,0,0.35)] overflow-hidden relative">
 
               <div className="flex justify-between items-start mb-6">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <span className={`w-2 h-2 rounded-full ${selectedNeuron.isShadow ? 'bg-white/30' : 'bg-blue-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]'}`} />
+                    <span className={`w-2 h-2 rounded-full ${selectedNeuron.isShadow ? 'bg-white/30' : 'bg-blue-400 shadow-[0_0_8px_rgba(59,130,246,0.6)]'}`} />
                     <span className="text-[10px] uppercase tracking-widest text-white/40 font-bold">{selectedNeuron.category}</span>
                   </div>
                   <h2 className="text-2xl font-bold tracking-tight text-white leading-tight">
@@ -1795,7 +2136,7 @@ export default function App() {
                         <motion.div
                           initial={{ width: 0 }}
                           animate={{ width: `${selectedNeuron.strength * 100}%` }}
-                          className="h-full bg-blue-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]"
+                          className="h-full bg-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.5)]"
                         />
                       </div>
                     </div>
@@ -1823,6 +2164,8 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Profile Picker hidden for now */}
+
       {/* ── Chat Sidebar (optional, toggled) ────────────────────────── */}
       <AnimatePresence>
         {showChat && (
@@ -1831,7 +2174,7 @@ export default function App() {
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="absolute right-0 top-0 w-96 h-full bg-black/80 backdrop-blur-2xl border-l border-white/10 flex flex-col shadow-2xl z-40"
+            className="absolute right-0 top-0 w-96 h-full bg-white/[0.05] backdrop-blur-2xl border-l border-white/[0.14] flex flex-col shadow-[0_16px_50px_rgba(0,0,0,0.35)] z-40"
           >
             <div className="p-6 border-b border-white/10 flex justify-between items-center">
               <div className="flex items-center gap-3">

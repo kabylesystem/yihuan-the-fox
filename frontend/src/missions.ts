@@ -37,7 +37,37 @@ export const LEARNER_LEVEL_LABEL: Record<LearnerLevel, string> = {
   advanced: 'Independent (B2+)',
 };
 
-// ── MISSION_POOL (15 missions) ─────────────────────────────────────────────
+// ── Supported languages ─────────────────────────────────────────────────────
+
+export interface SupportedLanguage {
+  code: string;       // ISO 639-1 (sent to backend)
+  name: string;       // English name
+  native: string;     // Name in the language itself
+  flag: string;       // Emoji flag
+  greeting: string;   // Example greeting
+}
+
+export const SUPPORTED_LANGUAGES: SupportedLanguage[] = [
+  { code: 'fr', name: 'French', native: 'Français', flag: '🇫🇷', greeting: 'Bonjour' },
+  { code: 'es', name: 'Spanish', native: 'Español', flag: '🇪🇸', greeting: 'Hola' },
+  { code: 'de', name: 'German', native: 'Deutsch', flag: '🇩🇪', greeting: 'Hallo' },
+  { code: 'it', name: 'Italian', native: 'Italiano', flag: '🇮🇹', greeting: 'Ciao' },
+  { code: 'pt', name: 'Portuguese', native: 'Português', flag: '🇵🇹', greeting: 'Olá' },
+  { code: 'ja', name: 'Japanese', native: '日本語', flag: '🇯🇵', greeting: 'こんにちは' },
+  { code: 'ko', name: 'Korean', native: '한국어', flag: '🇰🇷', greeting: '안녕하세요' },
+  { code: 'zh', name: 'Chinese', native: '中文', flag: '🇨🇳', greeting: '你好' },
+  { code: 'ar', name: 'Arabic', native: 'العربية', flag: '🇸🇦', greeting: 'مرحبا' },
+  { code: 'ru', name: 'Russian', native: 'Русский', flag: '🇷🇺', greeting: 'Привет' },
+  { code: 'nl', name: 'Dutch', native: 'Nederlands', flag: '🇳🇱', greeting: 'Hallo' },
+  { code: 'tr', name: 'Turkish', native: 'Türkçe', flag: '🇹🇷', greeting: 'Merhaba' },
+  { code: 'hi', name: 'Hindi', native: 'हिन्दी', flag: '🇮🇳', greeting: 'नमस्ते' },
+  { code: 'sv', name: 'Swedish', native: 'Svenska', flag: '🇸🇪', greeting: 'Hej' },
+  { code: 'pl', name: 'Polish', native: 'Polski', flag: '🇵🇱', greeting: 'Cześć' },
+];
+
+// ── MISSION_POOL (15 language-agnostic missions) ──────────────────────────
+// Keywords removed — mission completion is evaluated by accepted vocabulary
+// units from the AI, not by matching hardcoded words in any specific language.
 
 export const MISSION_POOL: MissionDef[] = [
   // -- Identity --
@@ -45,17 +75,17 @@ export const MISSION_POOL: MissionDef[] = [
     id: 'id_name',
     title: 'Who Even Are You?',
     objective: 'Introduce yourself: name, age, or nationality.',
-    humor: 'Existential crisis, but make it French.',
+    humor: 'Existential crisis, but make it linguistic.',
     mainTask: 'Say your name or introduce yourself.',
-    keywords: ["je m'appelle", 'je suis', 'mon nom', 'appelle'],
+    keywords: [],
   },
   {
     id: 'id_origin',
     title: 'Citizen of Somewhere',
     objective: 'Say where you are from or where you live.',
-    humor: 'Geography class, oui oui edition.',
+    humor: 'Geography class, multilingual edition.',
     mainTask: 'Say where you live or where you are from.',
-    keywords: ["j'habite", 'je viens de', 'je vis', 'en france', 'a paris', 'habite'],
+    keywords: [],
   },
 
   // -- Food --
@@ -63,37 +93,27 @@ export const MISSION_POOL: MissionDef[] = [
     id: 'food_like',
     title: 'Foodie Confessions',
     objective: 'Talk about a food you love and why.',
-    humor: 'Cheese is always the right answer.',
+    humor: 'Food is the universal language.',
     mainTask: 'Mention a food you like.',
-    keywords: [
-      "j'aime", 'je mange', 'fromage', 'pain', 'pizza', 'poulet',
-      'salade', 'chocolat', 'croissant', 'pates', 'riz', 'sushi',
-      'burger', 'fruit', 'poisson', 'viande', 'gateau',
-    ],
+    keywords: [],
   },
   {
     id: 'food_order',
-    title: 'Waiter, S\'il Vous Plait!',
+    title: 'Table for One, Please!',
     objective: 'Order something at a restaurant or cafe.',
-    humor: 'One baguette to rule them all.',
+    humor: 'Menu decoding: activated.',
     mainTask: 'Order food or a drink.',
-    keywords: [
-      'je voudrais', "s'il vous plait", 'la carte', 'commander',
-      'un cafe', 'un verre', "l'addition", 'manger', 'boire',
-    ],
+    keywords: [],
   },
 
   // -- Daily Life --
   {
     id: 'daily_morning',
-    title: 'Rise & Grind (en francais)',
+    title: 'Rise & Grind',
     objective: 'Describe your morning routine.',
-    humor: 'Snooze button not available in French.',
+    humor: 'Snooze button not available in your target language.',
     mainTask: 'Describe a morning activity.',
-    keywords: [
-      'se lever', 'petit-dejeuner', 'matin', 'douche', 'reveil',
-      'cafe', 'lever', 'habiller', 'brosser',
-    ],
+    keywords: [],
   },
   {
     id: 'daily_today',
@@ -101,11 +121,8 @@ export const MISSION_POOL: MissionDef[] = [
     objective: 'Describe what you did today using past tense.',
     humor: 'Living in the past, linguistically.',
     mainTask: 'Use a time anchor (today, this morning, tonight).',
-    keywords: [
-      "aujourd'hui", 'aujourdhui', 'ce matin', 'ce soir',
-      'cet apres', 'cette nuit', 'hier',
-    ],
-    detailKeywords: ['puis', 'ensuite', 'apres', 'et puis', 'then'],
+    keywords: [],
+    detailKeywords: [],
   },
 
   // -- People --
@@ -113,13 +130,9 @@ export const MISSION_POOL: MissionDef[] = [
     id: 'people_family',
     title: 'Family Tree Speedrun',
     objective: 'Talk about a family member.',
-    humor: 'Thanksgiving dinner, French edition.',
+    humor: 'Holiday dinner, multilingual edition.',
     mainTask: 'Mention a family member.',
-    keywords: [
-      'famille', 'mere', 'pere', 'frere', 'soeur', 'maman',
-      'papa', 'cousin', 'oncle', 'tante', 'grand', 'enfant',
-      'fils', 'fille', 'parents',
-    ],
+    keywords: [],
   },
   {
     id: 'people_friend',
@@ -127,10 +140,7 @@ export const MISSION_POOL: MissionDef[] = [
     objective: 'Describe a friend — what they look like or what you do together.',
     humor: 'Friendship is magic. So is verb conjugation.',
     mainTask: 'Talk about a friend.',
-    keywords: [
-      'ami', 'amie', 'copain', 'copine', 'ensemble', 'meilleur',
-      'connais', 'rencontre',
-    ],
+    keywords: [],
   },
 
   // -- Places --
@@ -140,10 +150,7 @@ export const MISSION_POOL: MissionDef[] = [
     objective: 'Describe a city or place you know.',
     humor: 'Tour guide energy activated.',
     mainTask: 'Name or describe a city or place.',
-    keywords: [
-      'ville', 'paris', 'lyon', 'quartier', 'rue', 'batiment',
-      'centre', 'place', 'parc', 'jardin', 'musee', 'monument',
-    ],
+    keywords: [],
   },
   {
     id: 'places_travel',
@@ -151,10 +158,7 @@ export const MISSION_POOL: MissionDef[] = [
     objective: 'Talk about a trip you took or want to take.',
     humor: 'Turbulence expected in grammar zone.',
     mainTask: 'Talk about traveling somewhere.',
-    keywords: [
-      'voyage', 'voyager', 'avion', 'train', 'hotel', 'vacances',
-      'visiter', 'billet', 'passeport', 'valise', 'gare', 'aeroport',
-    ],
+    keywords: [],
   },
 
   // -- Hobbies --
@@ -164,10 +168,7 @@ export const MISSION_POOL: MissionDef[] = [
     objective: 'Talk about a sport or physical activity you enjoy.',
     humor: 'Leg day, but for your vocabulary.',
     mainTask: 'Mention a sport or exercise.',
-    keywords: [
-      'sport', 'jouer', 'football', 'nager', 'courir', 'tennis',
-      'velo', 'marcher', 'gymnastique', 'equipe', 'match', 'faire du sport',
-    ],
+    keywords: [],
   },
   {
     id: 'hobby_music',
@@ -175,23 +176,17 @@ export const MISSION_POOL: MissionDef[] = [
     objective: 'Talk about music you like or an instrument you play.',
     humor: 'Auto-tune won\'t help your accent.',
     mainTask: 'Talk about music or an instrument.',
-    keywords: [
-      'musique', 'chanson', 'chanter', 'guitare', 'piano', 'ecouter',
-      'concert', 'artiste', 'groupe', 'jouer',
-    ],
+    keywords: [],
   },
 
   // -- Deeper Topics --
   {
     id: 'deep_dream',
-    title: 'Dream Big (en francais)',
+    title: 'Dream Big',
     objective: 'Talk about a dream, goal, or ambition.',
-    humor: 'Manifesting in the subjunctive mood.',
+    humor: 'Manifesting in a new language.',
     mainTask: 'Describe a dream or goal.',
-    keywords: [
-      'reve', 'rever', 'vouloir', 'je veux', 'esperer', 'objectif',
-      'avenir', 'futur', 'devenir', 'souhaite', 'aimerais',
-    ],
+    keywords: [],
   },
   {
     id: 'deep_opinion',
@@ -199,10 +194,7 @@ export const MISSION_POOL: MissionDef[] = [
     objective: 'Give your opinion on something — agree or disagree.',
     humor: 'Controversy is great for vocabulary retention.',
     mainTask: 'Express an opinion.',
-    keywords: [
-      'je pense', 'je crois', 'a mon avis', 'selon moi', 'important',
-      'interessant', "d'accord", 'pas d\'accord', 'opinion', 'prefere',
-    ],
+    keywords: [],
   },
   {
     id: 'deep_weather',
@@ -210,11 +202,7 @@ export const MISSION_POOL: MissionDef[] = [
     objective: 'Talk about the weather or seasons.',
     humor: 'Peak adult conversation unlocked.',
     mainTask: 'Describe the weather or a season.',
-    keywords: [
-      'temps', 'il fait', 'soleil', 'pluie', 'neige', 'chaud', 'froid',
-      'beau', 'nuage', 'vent', 'printemps', 'ete', 'automne', 'hiver',
-      'il pleut', 'il neige',
-    ],
+    keywords: [],
   },
 ];
 
@@ -333,23 +321,29 @@ export function evaluateMissionTask(
     );
   };
 
-  // Main task: check mission keywords
+  // Main task: pass if we got enough accepted vocabulary units on-topic
+  // (language-agnostic — the AI validates vocabulary server-side)
   if (taskId.endsWith('_main')) {
-    return containsAny(mission.keywords);
+    if (mission.keywords.length > 0) {
+      return containsAny(mission.keywords);
+    }
+    // Require meaningful vocabulary output — not just 1 word
+    const unitThreshold = learnerLevel === 'starter' ? 2 : learnerLevel === 'advanced' ? 4 : 3;
+    return acceptedUnits.length >= unitThreshold && qualityScore >= 0.5;
   }
 
-  // Detail task: quality OR enough accepted units
+  // Detail task: quality AND enough accepted units (harder than main)
   if (taskId.endsWith('_detail')) {
-    const unitThreshold = learnerLevel === 'starter' ? 1 : learnerLevel === 'advanced' ? 3 : 2;
-    const qualityThreshold = learnerLevel === 'starter' ? 0.55 : learnerLevel === 'advanced' ? 0.75 : 0.65;
-    return acceptedUnits.length >= unitThreshold || qualityScore >= qualityThreshold;
+    const unitThreshold = learnerLevel === 'starter' ? 2 : learnerLevel === 'advanced' ? 4 : 3;
+    const qualityThreshold = learnerLevel === 'starter' ? 0.60 : learnerLevel === 'advanced' ? 0.75 : 0.65;
+    return acceptedUnits.length >= unitThreshold && qualityScore >= qualityThreshold;
   }
 
   // Reuse task: check if any fading target appears
   if (taskId.endsWith('_reuse')) {
     if (fadingTargets.length === 0) {
-      // No fading targets yet; pass if any accepted unit
-      return acceptedUnits.length >= 1;
+      // No fading targets yet; pass if enough accepted units (not just 1)
+      return acceptedUnits.length >= 2 && qualityScore >= 0.55;
     }
     const reused = fadingTargets.some((t) => containsTarget(t));
     if (!reused) return false;
@@ -365,14 +359,16 @@ export function evaluateMissionTask(
 // ── MascotOverlay ──────────────────────────────────────────────────────────
 
 export interface MascotOverlayProps {
-  type: 'onboarding' | 'mission_intro' | 'mission_complete' | 'daily_done' | 'level_up';
+  type: 'onboarding' | 'mission_intro' | 'mission_complete' | 'daily_done' | 'level_up' | 'memory_fade';
   data?: any;
   onDismiss: () => void;
   onboardingStep?: number;
   selectedMinutes?: number;
   selectedLevel?: LearnerLevel;
+  selectedLanguage?: string;
   onSelectMinutes?: (minutes: number) => void;
   onSelectLevel?: (level: LearnerLevel) => void;
+  onSelectLanguage?: (code: string) => void;
 }
 
 // We build the component with React.createElement to avoid needing JSX in a .ts file.
@@ -583,6 +579,7 @@ const STORAGE = {
   onboarded: 'echo_onboarding',
   dailyMinutes: 'echo_daily_minutes',
   learnerLevel: 'echo_learner_level',
+  language: 'echo_language',
   sessionDate: 'echo_session_date',
   missionsCompleted: 'echo_missions_completed',
   missionDone: 'echo_mission_done',
@@ -598,6 +595,7 @@ export function loadDailyState() {
     storedLevel === 'starter' || storedLevel === 'intermediate' || storedLevel === 'advanced'
       ? storedLevel
       : 'intermediate';
+  const language = localStorage.getItem(STORAGE.language) || 'fr';
   const savedDate = localStorage.getItem(STORAGE.sessionDate) || '';
   const isNewDay = savedDate !== today;
 
@@ -606,13 +604,14 @@ export function loadDailyState() {
     localStorage.setItem(STORAGE.missionsCompleted, '0');
     localStorage.setItem(STORAGE.missionDone, '{}');
     localStorage.setItem(STORAGE.missionIndex, '0');
-    return { onboarded, dailyMinutes, learnerLevel, missionsCompletedToday: 0, missionDone: {} as Record<string, boolean>, missionIndex: 0, isNewDay: true };
+    return { onboarded, dailyMinutes, learnerLevel, language, missionsCompletedToday: 0, missionDone: {} as Record<string, boolean>, missionIndex: 0, isNewDay: true };
   }
 
   return {
     onboarded,
     dailyMinutes,
     learnerLevel,
+    language,
     missionsCompletedToday: parseInt(localStorage.getItem(STORAGE.missionsCompleted) || '0', 10),
     missionDone: JSON.parse(localStorage.getItem(STORAGE.missionDone) || '{}') as Record<string, boolean>,
     missionIndex: parseInt(localStorage.getItem(STORAGE.missionIndex) || '0', 10),
@@ -620,10 +619,11 @@ export function loadDailyState() {
   };
 }
 
-export function saveOnboarding(dailyMinutes: number, learnerLevel: LearnerLevel) {
+export function saveOnboarding(dailyMinutes: number, learnerLevel: LearnerLevel, language: string = 'fr') {
   localStorage.setItem(STORAGE.onboarded, 'true');
   localStorage.setItem(STORAGE.dailyMinutes, String(dailyMinutes));
   localStorage.setItem(STORAGE.learnerLevel, learnerLevel);
+  localStorage.setItem(STORAGE.language, language);
   localStorage.setItem(STORAGE.sessionDate, new Date().toISOString().slice(0, 10));
   localStorage.setItem(STORAGE.missionsCompleted, '0');
 }
@@ -637,7 +637,7 @@ export function saveMissionProgress(missionIndex: number, missionDone: Record<st
 // ── MascotOverlay Component ───────────────────────────────────────────────
 
 export function MascotOverlay(props: MascotOverlayProps) {
-  const { type, data, onDismiss, onboardingStep, selectedMinutes, selectedLevel, onSelectMinutes, onSelectLevel } = props;
+  const { type, data, onDismiss, onboardingStep, selectedMinutes, selectedLevel, selectedLanguage, onSelectMinutes, onSelectLevel, onSelectLanguage } = props;
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Stable ref for onDismiss so the auto-dismiss timer doesn't reset on every parent re-render
   const onDismissRef = useRef(onDismiss);
@@ -671,11 +671,45 @@ export function MascotOverlay(props: MascotOverlayProps) {
         h(
           'p',
           { className: 'text-lg text-white/60 text-center max-w-sm' },
-          "I'll help you learn French \u2014 just by talking.",
+          "I'll help you learn any language \u2014 just by talking.",
         ),
         h(PillButton, { label: 'Continue', onClick: onDismiss, accent: true }),
       );
     } else if (onboardingStep === 2) {
+      // Language selection step
+      content = h(
+        'div',
+        { className: 'flex flex-col items-center gap-6' },
+        h(EchoLogo, { size: 'lg' }),
+        h(
+          'h1',
+          { className: 'text-2xl font-bold text-white text-center mt-4' },
+          'What do you want to learn?',
+        ),
+        h(
+          'p',
+          { className: 'text-base text-white/50 text-center' },
+          'Pick your target language.',
+        ),
+        h(
+          'div',
+          { className: 'w-full grid grid-cols-3 gap-2.5 mt-2 max-h-[320px] overflow-y-auto pr-1' },
+          ...SUPPORTED_LANGUAGES.map((lang) =>
+            h(
+              'button',
+              {
+                key: lang.code,
+                onClick: () => onSelectLanguage?.(lang.code),
+                className:
+                  'flex flex-col items-center gap-1 rounded-2xl border border-white/15 bg-white/5 hover:bg-white/10 px-2 py-3 transition-all',
+              },
+              h('span', { className: 'text-2xl' }, lang.flag),
+              h('span', { className: 'text-xs font-semibold text-white' }, lang.native),
+            ),
+          ),
+        ),
+      );
+    } else if (onboardingStep === 3) {
       const minutes = [5, 10, 15, 20, 30];
       content = h(
         'div',
@@ -704,7 +738,7 @@ export function MascotOverlay(props: MascotOverlayProps) {
           ),
         ),
       );
-    } else if (onboardingStep === 3) {
+    } else if (onboardingStep === 4) {
       const levels: Array<{ value: LearnerLevel; title: string; hint: string }> = [
         { value: 'starter', title: 'Beginner (A0-A1)', hint: 'Simple words and short sentences.' },
         { value: 'intermediate', title: 'Developing (A2-B1)', hint: 'Everyday topics with clear details.' },
@@ -743,9 +777,11 @@ export function MascotOverlay(props: MascotOverlayProps) {
           ),
         ),
       );
-    } else if (onboardingStep === 4) {
+    } else if (onboardingStep === 5) {
       const mins = selectedMinutes ?? data?.minutes ?? 10;
       const level: LearnerLevel = selectedLevel ?? data?.level ?? 'intermediate';
+      const langCode = selectedLanguage ?? data?.language ?? 'fr';
+      const langObj = SUPPORTED_LANGUAGES.find(l => l.code === langCode);
       const n = Math.max(1, Math.floor(mins / 5));
       content = h(
         'div',
@@ -754,14 +790,14 @@ export function MascotOverlay(props: MascotOverlayProps) {
         h(
           'h1',
           { className: 'text-2xl font-bold text-white text-center mt-4' },
-          `Perfect! ${mins} minutes = ${n} mission${n > 1 ? 's' : ''} per day.`,
+          `${langObj?.greeting ?? 'Hello'}!`,
         ),
         h(
           'p',
           { className: 'text-base text-white/50 text-center max-w-md' },
-          `Difficulty: ${LEARNER_LEVEL_LABEL[level]}.`,
+          `${langObj?.flag ?? ''} ${langObj?.name ?? langCode} \u2022 ${mins} min/day \u2022 ${LEARNER_LEVEL_LABEL[level]}`,
         ),
-        h(PillButton, { label: 'Got it!', onClick: onDismiss, accent: true }),
+        h(PillButton, { label: "Let's go!", onClick: onDismiss, accent: true }),
       );
     }
   } else if (type === 'mission_intro') {
@@ -832,6 +868,35 @@ export function MascotOverlay(props: MascotOverlayProps) {
         'p',
         { className: 'text-xl text-blue-300 font-mono text-center' },
         data?.old && data?.new ? `${data.old} \u2192 ${data.new}` : '',
+      ),
+    );
+  } else if (type === 'memory_fade') {
+    content = h(
+      'div',
+      { className: 'flex flex-col items-center gap-5' },
+      h(EchoLogo, { size: 'lg' }),
+      h(
+        'h1',
+        { className: 'text-3xl font-bold text-white text-center mt-4' },
+        'Memories Fade',
+      ),
+      h(
+        'p',
+        { className: 'text-base text-white/60 text-center max-w-sm leading-relaxed' },
+        'Words you practice glow brighter. Words you neglect slowly dim.',
+      ),
+      h(
+        'p',
+        { className: 'text-sm text-white/40 text-center max-w-sm' },
+        'Your AI tutor will naturally bring fading words back into conversation.',
+      ),
+      h(
+        'button',
+        {
+          className: 'mt-4 px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm uppercase tracking-wider transition-all',
+          onClick: onDismiss,
+        },
+        'Got it',
       ),
     );
   }

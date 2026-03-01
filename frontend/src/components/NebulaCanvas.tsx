@@ -63,7 +63,8 @@ function NeuronNode({ neuron, onClick, isDimmed, isFocused, isNew, isHighlighted
       const time = state.clock.getElapsedTime();
       const pulse = 1 + Math.sin(time * (0.6 + neuron.potential * 0.8)) * 0.04;
       const baseScale = neuron.type === 'soma' ? 1.4 : 0.75;
-      const strengthScale = 0.5 + neuron.strength * 0.6;
+      // Fading nodes shrink noticeably: strength 0.15→0.35, 0.5→0.55, 1.0→1.0
+      const strengthScale = 0.2 + neuron.strength * 0.8;
 
       let scale = pulse * baseScale * strengthScale;
       if (isFocused) scale *= 1.35;
@@ -83,24 +84,20 @@ function NeuronNode({ neuron, onClick, isDimmed, isFocused, isNew, isHighlighted
       meshRef.current.scale.setScalar(scale);
 
       const mat = meshRef.current.material as THREE.MeshStandardMaterial;
-      if (neuron.isShadow) {
-        mat.opacity = 0.3;
-        mat.transparent = true;
-      } else if (isNew) {
-        // Brand-new neuron: very dark, barely visible — recede into darkness
+      // Mastery-driven opacity: strength 0.15→0.28, 0.6→0.66, 1.0→1.0
+      const masteryOpacity = 0.15 + neuron.strength * 0.85;
+      if (isNew) {
         mat.opacity = 0.06;
         mat.transparent = true;
       } else if (isHighlighted) {
-        // Fully lit — bioluminescent
         mat.opacity = 1.0;
         mat.transparent = false;
       } else if (isStreamingActive) {
-        // Non-highlighted old nodes recede into darkness during streaming
-        mat.opacity = isDimmed ? 0.05 : 0.1;
+        mat.opacity = isDimmed ? 0.05 : masteryOpacity * 0.15;
         mat.transparent = true;
       } else {
-        mat.opacity = isDimmed ? 0.15 : 1;
-        mat.transparent = isDimmed || false;
+        mat.opacity = isDimmed ? 0.15 : masteryOpacity;
+        mat.transparent = masteryOpacity < 0.95 || isDimmed;
       }
     }
   });
@@ -108,19 +105,19 @@ function NeuronNode({ neuron, onClick, isDimmed, isFocused, isNew, isHighlighted
   // isHighlighted overrides dimming — force full brightness on referenced old nodes
   const effectiveDimmed = isHighlighted ? false : (isNew ? true : isDimmed);
 
-  const emissiveIntensity = neuron.isShadow
-    ? 0.02
-    : isNew
+  // Emissive scales with strength² for dramatic fading contrast
+  const strengthGlow = neuron.strength * neuron.strength; // 0.15→0.02, 0.5→0.25, 1.0→1.0
+  const emissiveIntensity = isNew
       ? 0.0
       : isHighlighted
-        ? 1.2 + neuron.strength * 0.8   // deep bioluminescent blast
+        ? 1.2 + neuron.strength * 0.8
         : isStreamingActive
-          ? 0.005                          // everything else nearly dead
+          ? 0.005
           : effectiveDimmed
             ? 0.01
             : neuron.type === 'soma'
-              ? 0.15 + neuron.strength * 0.25
-              : 0.06 + neuron.strength * 0.1;
+              ? strengthGlow * 0.4
+              : strengthGlow * 0.16;
 
   // Grey color for new unconnected neurons; normal category color otherwise
   const displayColor = isNew ? '#1f2937' : CATEGORY_COLORS[neuron.category];
@@ -155,7 +152,7 @@ function NeuronNode({ neuron, onClick, isDimmed, isFocused, isNew, isHighlighted
         anchorX="center"
         anchorY="middle"
         maxWidth={2.5}
-        fillOpacity={neuron.isShadow ? 0.3 : isNew ? 0.04 : isHighlighted ? 1.0 : isStreamingActive ? 0.06 : effectiveDimmed ? 0.1 : 0.9}
+        fillOpacity={isNew ? 0.04 : isHighlighted ? 1.0 : isStreamingActive ? 0.06 : effectiveDimmed ? 0.1 : Math.max(0.15, neuron.strength)}
       >
         {neuron.label}
       </Text>
@@ -301,15 +298,18 @@ function SynapseLine({ synapse, neurons, isDimmed, onClick, isCrossBatch, isStre
 }
 
 // ── Camera Controller (non-flight mode) ─────────────────────────────────
-function CameraController({ targetNode, isFocused, positionedNodes }: { targetNode: Neuron | null; isFocused?: boolean; positionedNodes?: Neuron[] }) {
-  const { camera, controls } = useThree() as any;
-  const lastNodeCount = useRef(0);
+// Module-level flag — survives component remounts so camera never auto-recenters
+// after the user has navigated away
+let _cameraInitialized = false;
 
-  // Auto-fit camera when node count changes (new data generated)
+function CameraController({ targetNode, positionedNodes }: { targetNode: Neuron | null; isFocused?: boolean; positionedNodes?: Neuron[] }) {
+  const { camera, controls } = useThree() as any;
+
+  // Auto-fit ONCE on very first load with nodes — never again
   useEffect(() => {
+    if (_cameraInitialized) return;
     if (!positionedNodes || positionedNodes.length === 0) return;
-    if (positionedNodes.length === lastNodeCount.current) return;
-    lastNodeCount.current = positionedNodes.length;
+    _cameraInitialized = true;
 
     const validNodes = positionedNodes.filter(n => n.x !== undefined && n.y !== undefined && n.z !== undefined);
     if (validNodes.length === 0) return;
@@ -323,14 +323,9 @@ function CameraController({ targetNode, isFocused, positionedNodes }: { targetNo
     if (controls) controls.target.set(0, 0, 0);
   }, [positionedNodes, camera, controls]);
 
+  // Only move camera for search — gentle lerp to search target
   useFrame(() => {
-    if (isFocused && targetNode && targetNode.x !== undefined) {
-      const targetPos = new THREE.Vector3(targetNode.x, targetNode.y, targetNode.z + 8);
-      camera.position.lerp(targetPos, 0.08);
-      if (controls) {
-        controls.target.lerp(new THREE.Vector3(targetNode.x, targetNode.y, targetNode.z), 0.08);
-      }
-    } else if (targetNode && targetNode.x !== undefined) {
+    if (targetNode && targetNode.x !== undefined) {
       const targetPos = new THREE.Vector3(targetNode.x, targetNode.y, targetNode.z + 5);
       camera.position.lerp(targetPos, 0.05);
       if (controls) {
@@ -364,109 +359,77 @@ export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick,
 }) {
   // Use local state for positioned nodes to avoid prop mutation issues
   const [positionedNodes, setPositionedNodes] = useState<Neuron[]>([]);
-  const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
+  // Preserve positions across re-simulations so nodes don't jump
+  const prevPositionsRef = useRef<Map<string, { x: number; y: number; z: number }>>(new Map());
 
   useEffect(() => {
     // Clone to avoid mutating props
     const nodes = neurons.map(n => ({ ...n }));
     const links = synapses.map(s => ({ ...s }));
 
-    // If there's a focus node, use different positioning strategy
-    if (focusNodeId) {
-      const focusNode = nodes.find(n => n.id === focusNodeId);
-      if (focusNode) {
-        // Place focus node at center
-        focusNode.x = 0;
-        focusNode.y = 0;
-        focusNode.z = 0;
+    const n = nodes.length;
+    const scale = Math.max(0.25, Math.min(1.0, 8 / Math.sqrt(n)));
+    const linkClose = 0.18 * scale;
+    const linkFar   = 0.35 * scale;
 
-        // Arrange connected nodes in circles around the focus node
-        const connectedToFocus = new Set<string>();
-        links.forEach(link => {
-          if (link.source === focusNodeId) connectedToFocus.add(link.target as string);
-          if (link.target === focusNodeId) connectedToFocus.add(link.source);
-        });
-
-        const otherNodes = nodes.filter(n => n.id !== focusNodeId);
-        const directConnected = otherNodes.filter(n => connectedToFocus.has(n.id));
-        const indirectConnected = otherNodes.filter(n => !connectedToFocus.has(n.id));
-
-        // Place direct connections in inner circle (radius ~3)
-        directConnected.forEach((node, i) => {
-          const angle = (i / directConnected.length) * Math.PI * 2;
-          const radius = 3;
-          node.x = Math.cos(angle) * radius;
-          node.y = Math.sin(angle) * radius;
-          node.z = Math.cos(angle * 0.5) * radius * 0.3;
-        });
-
-        // Place indirect connections in outer circle (radius ~6)
-        indirectConnected.forEach((node, i) => {
-          const angle = (i / indirectConnected.length) * Math.PI * 2;
-          const radius = 6;
-          node.x = Math.cos(angle) * radius;
-          node.y = Math.sin(angle) * radius;
-          node.z = Math.cos(angle * 0.5) * radius * 0.5;
-        });
-
-        setPositionedNodes(nodes);
+    // Restore previous positions so existing nodes don't jump
+    const prevPos = prevPositionsRef.current;
+    const rng = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
+    for (const node of nodes) {
+      const saved = prevPos.get(node.id);
+      if (saved) {
+        node.x = saved.x;
+        node.y = saved.y;
+        node.z = saved.z;
+      } else if (node.x === undefined) {
+        node.x = rng(-1, 1);
+        node.y = rng(-1, 1);
+        node.z = rng(-1, 1);
       }
-    } else {
-      // Normal force-directed simulation
-      const n = nodes.length;
-      const scale = Math.max(0.25, Math.min(1.0, 8 / Math.sqrt(n)));
-      const linkClose = 0.18 * scale;
-      const linkFar   = 0.35 * scale;
-
-      // ── Seed initial positions randomly in 3D so the simulation has
-      //    depth to work with — avoids collapsing to a flat plane ──────
-      const rng = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
-      for (const node of nodes) {
-        if (node.x === undefined) {
-          node.x = rng(-1, 1);
-          node.y = rng(-1, 1);
-          node.z = rng(-1, 1);
-        }
-      }
-
-      // ── Category anchors: spread on a sphere using golden-ratio
-      //    latitude spacing so no two clusters share the same Z plane ───
-      const categories = [...new Set(nodes.map(d => d.category))];
-      const catCount = categories.length || 1;
-      const ringR = Math.max(0.5, 1.6 * scale);
-      const catAnchors: Record<string, { x: number; y: number; z: number }> = {};
-      categories.forEach((cat, idx) => {
-        // golden-angle spiral on a sphere → even 3D spread
-        const phi   = Math.acos(1 - 2 * (idx + 0.5) / catCount);   // polar [0,π]
-        const theta = Math.PI * (1 + Math.sqrt(5)) * idx;            // azimuth
-        catAnchors[cat] = {
-          x: ringR * Math.sin(phi) * Math.cos(theta),
-          y: ringR * Math.cos(phi),                   // full Y range — no flatten
-          z: ringR * Math.sin(phi) * Math.sin(theta),
-        };
-      });
-
-      const sim = forceSimulation<Neuron>(nodes, 3)
-        .force('link', forceLink<Neuron, any>(links).id(d => d.id).distance((link: any) => {
-          return link.type === 'logical' ? linkClose : linkFar;
-        }).strength(0.7))
-        // Moderate repulsion — separates nodes in 3D space
-        .force('charge', forceManyBody().strength(-1.5 * scale))
-        // Light center gravity — keeps cloud visible without collapsing depth
-        .force('center', forceCenter(0, 0, 0).strength(0.4))
-        // Category clustering — equal weight on all 3 axes → true 3D clusters
-        .force('catX', forceX<Neuron>(d => catAnchors[d.category]?.x ?? 0).strength(0.5))
-        .force('catY', forceY<Neuron>(d => {
-          const base = catAnchors[d.category]?.y ?? 0;
-          return base + (d.type === 'soma' ? 0.06 * scale : -0.06 * scale);
-        }).strength(0.5))
-        .force('catZ', forceZ<Neuron>(d => catAnchors[d.category]?.z ?? 0).strength(0.5))
-        .stop();
-
-      for (let i = 0; i < 500; i++) sim.tick();
-      setPositionedNodes(nodes);
     }
-  }, [neurons, synapses, focusNodeId]);
+
+    const categories = [...new Set(nodes.map(d => d.category))];
+    const catCount = categories.length || 1;
+    const ringR = Math.max(0.5, 1.6 * scale);
+    const catAnchors: Record<string, { x: number; y: number; z: number }> = {};
+    categories.forEach((cat, idx) => {
+      const phi   = Math.acos(1 - 2 * (idx + 0.5) / catCount);
+      const theta = Math.PI * (1 + Math.sqrt(5)) * idx;
+      catAnchors[cat] = {
+        x: ringR * Math.sin(phi) * Math.cos(theta),
+        y: ringR * Math.cos(phi),
+        z: ringR * Math.sin(phi) * Math.sin(theta),
+      };
+    });
+
+    const sim = forceSimulation<Neuron>(nodes, 3)
+      .force('link', forceLink<Neuron, any>(links).id(d => d.id).distance((link: any) => {
+        return link.type === 'logical' ? linkClose : linkFar;
+      }).strength(0.7))
+      .force('charge', forceManyBody().strength(-1.5 * scale))
+      .force('center', forceCenter(0, 0, 0).strength(0.05))
+      .force('catX', forceX<Neuron>(d => catAnchors[d.category]?.x ?? 0).strength(0.5))
+      .force('catY', forceY<Neuron>(d => {
+        const base = catAnchors[d.category]?.y ?? 0;
+        return base + (d.type === 'soma' ? 0.06 * scale : -0.06 * scale);
+      }).strength(0.5))
+      .force('catZ', forceZ<Neuron>(d => catAnchors[d.category]?.z ?? 0).strength(0.5))
+      .stop();
+
+    // Fewer ticks if most nodes already have positions (incremental update)
+    const hasPositions = nodes.filter(nd => prevPos.has(nd.id)).length;
+    const ticks = hasPositions > nodes.length * 0.5 ? 80 : 500;
+    for (let i = 0; i < ticks; i++) sim.tick();
+
+    // Save positions for next re-simulation
+    const newPos = new Map<string, { x: number; y: number; z: number }>();
+    for (const nd of nodes) {
+      newPos.set(nd.id, { x: nd.x ?? 0, y: nd.y ?? 0, z: nd.z ?? 0 });
+    }
+    prevPositionsRef.current = newPos;
+
+    setPositionedNodes(nodes);
+  }, [neurons, synapses]);
 
   // Find the actual positioned node for searching
   const activeSearchTarget = useMemo(() => {
@@ -475,11 +438,6 @@ export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick,
   }, [searchTarget, positionedNodes]);
 
   const handleNeuronClick = (neuron: Neuron) => {
-    if (focusNodeId === neuron.id) {
-      setFocusNodeId(null);
-    } else {
-      setFocusNodeId(neuron.id);
-    }
     onNeuronClick(neuron);
   };
 
@@ -506,7 +464,7 @@ export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick,
                 neuron={n}
                 onClick={() => handleNeuronClick(n)}
                 isDimmed={isDimmed}
-                isFocused={focusNodeId === n.id}
+                isFocused={false}
                 isNew={isNew}
                 isHighlighted={isHighlighted}
                 isStreamingActive={isStreamingActive && !isNew && !isHighlighted}
@@ -546,7 +504,7 @@ export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick,
 
         {/* Non-flight camera control */}
         {flightPhase === 'hidden' && (
-          <CameraController targetNode={activeSearchTarget} isFocused={focusNodeId !== null} positionedNodes={positionedNodes} />
+          <CameraController targetNode={activeSearchTarget} positionedNodes={positionedNodes} />
         )}
 
         {/* Flight mode: spaceship + camera rig */}
@@ -566,8 +524,7 @@ export function NebulaCanvas({ neurons, synapses, onNeuronClick, onSynapseClick,
 
         <OrbitControls
           makeDefault
-          autoRotate={!activeSearchTarget && !isFlying && !focusNodeId}
-          autoRotateSpeed={0.3}
+          autoRotate={false}
           enableDamping
           dampingFactor={0.05}
           enablePan={true}

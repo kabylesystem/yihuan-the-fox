@@ -23,3 +23,7 @@ BACKBOARD_API_KEY = os.getenv("BACKBOARD_API_KEY", "")
 # OpenAI - AI Tutor (GPT) + Text-to-Speech
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_ORG_ID = os.getenv("OPENAI_ORG_ID", "")
+
+# Supabase - Persistence & Profiles
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")

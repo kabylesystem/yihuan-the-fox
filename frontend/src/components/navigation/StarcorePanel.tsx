@@ -1,49 +1,64 @@
 import React from 'react';
 import { motion } from 'motion/react';
+import { Sparkles, RotateCcw } from 'lucide-react';
 import { FlightModeBranch } from './flightTypes';
 
 interface StarcorePanelProps {
   branch: FlightModeBranch;
   targetLabel?: string;
   onOpenSession: () => void;
+  onReturn: () => void;
 }
 
-export function StarcorePanel({ branch, targetLabel, onOpenSession }: StarcorePanelProps) {
-  const title = branch === 'explore' ? 'Starcore: Frontier Synthesis' : 'Starcore: Memory Recalibration';
-  const subtitle =
-    branch === 'explore'
-      ? 'Nebula growth sequence online. Stabilize new linguistic territory.'
-      : 'Fading signal locked. Run a targeted review to restore retention.';
+export function StarcorePanel({ branch, targetLabel, onOpenSession, onReturn }: StarcorePanelProps) {
+  const isExplore = branch === 'explore';
 
   return (
     <motion.div
-      initial={{ x: 18, opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
-      className="h-full overflow-y-auto p-6"
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      className="flex flex-col items-center gap-6 text-center"
     >
-      <div className="rounded-2xl border border-cyan-300/20 bg-slate-950/65 p-5 backdrop-blur-2xl shadow-[0_20px_60px_rgba(14,116,144,0.35)]">
-        <p className="text-[10px] uppercase tracking-[0.22em] text-cyan-200/60">Starcore Console</p>
-        <h4 className="mt-2 text-base font-semibold text-cyan-50">{title}</h4>
-        <p className="mt-2 text-xs leading-relaxed text-cyan-100/70">{subtitle}</p>
+      {/* Big icon */}
+      <motion.div
+        animate={{ scale: [1, 1.08, 1] }}
+        transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
+        className="w-20 h-20 rounded-full bg-cyan-500/15 border border-cyan-400/25 flex items-center justify-center"
+      >
+        {isExplore
+          ? <Sparkles size={36} className="text-cyan-300" />
+          : <RotateCcw size={36} className="text-cyan-300" />
+        }
+      </motion.div>
 
-        <div className="mt-4 rounded-xl border border-cyan-400/20 bg-cyan-500/10 p-3">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-cyan-100/60">Target</p>
-          <p className="mt-1 text-sm font-medium text-cyan-50">{targetLabel ?? 'Autonomous selection in progress'}</p>
-        </div>
-
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <button
-            onClick={onOpenSession}
-            className="rounded-lg border border-cyan-300/30 bg-cyan-400/15 px-3 py-2 text-[11px] font-semibold text-cyan-100 transition hover:bg-cyan-300/20"
-          >
-            Open Session
-          </button>
-          <button className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[11px] font-semibold text-white/80 transition hover:bg-white/10">
-            Hold Orbit
-          </button>
-        </div>
+      {/* Title */}
+      <div>
+        <h2 className="text-2xl font-bold text-white mb-2">
+          {isExplore ? 'New Territory Found' : 'Fading Memory Detected'}
+        </h2>
+        <p className="text-base text-white/50 max-w-xs">
+          {isExplore
+            ? 'Practice new words to expand your nebula.'
+            : `Reinforce "${targetLabel || 'this memory'}" before it fades.`
+          }
+        </p>
       </div>
+
+      {/* CTA */}
+      <button
+        onClick={onOpenSession}
+        className="px-8 py-3.5 rounded-2xl bg-cyan-500/20 border border-cyan-400/30 text-cyan-100 font-semibold text-base hover:bg-cyan-400/25 hover:border-cyan-300/40 transition-all shadow-[0_0_30px_rgba(6,182,212,0.2)]"
+      >
+        {isExplore ? 'Start Session' : 'Review Now'}
+      </button>
+
+      <button
+        onClick={onReturn}
+        className="text-sm text-white/35 hover:text-white/60 transition-colors"
+      >
+        Back to nebula
+      </button>
     </motion.div>
   );
 }
