@@ -692,17 +692,23 @@ async def _process_turn(
     }
     await websocket.send_json(response_payload)
 
-    # ── Step 5: TTS — send BEFORE returning (don't risk WebSocket closing) ──
+    # ── Step 5: TTS — ALWAYS send something (audio or browser fallback) ──
     try:
+        tts_result = None
         if early_tts_task:
-            tts_result = await early_tts_task
-        else:
+            try:
+                tts_result = await early_tts_task
+            except Exception as exc:
+                logger.warning("Early TTS task failed: %s", exc)
+        if not tts_result:
             tts_result = await _tts_service.synthesize(tutor_response.spoken_response)
         total_to_audio = int((time.perf_counter() - t0) * 1000)
         logger.info(">>> AUDIO READY: %dms total (mode=%s)", total_to_audio, tts_result.get("mode"))
         await websocket.send_json({"type": "tts", "tts": tts_result})
     except Exception as exc:
-        logger.error("TTS send failed (non-fatal): %s", exc)
+        logger.error("TTS send failed, sending browser fallback: %s", exc)
+        # ALWAYS send a TTS message so frontend doesn't hang waiting
+        await websocket.send_json({"type": "tts", "tts": {"mode": "browser", "text": tutor_response.spoken_response}})
 
     # ── Step 6: Backboard update in background (non-critical) ─────
     async def _background_backboard():
