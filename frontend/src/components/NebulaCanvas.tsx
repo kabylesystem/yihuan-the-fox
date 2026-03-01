@@ -162,14 +162,18 @@ function NeuronNode({ neuron, onClick, isDimmed, isFocused, isNew, isHighlighted
           decay={2}
         />
       )}
+      {/* Label background for readability */}
       <Text
-        position={[0, 0.55, 0]}
-        fontSize={0.16}
-        color="white"
+        position={[0, 0.65, 0]}
+        fontSize={0.28}
+        color={CATEGORY_COLORS[neuron.category]}
         anchorX="center"
         anchorY="middle"
-        maxWidth={3}
-        fillOpacity={isNew ? 0.04 : isHighlighted ? 1.0 : isStreamingActive ? 0.06 : effectiveDimmed ? 0.15 : Math.max(0.3, neuron.strength)}
+        maxWidth={4}
+        fontWeight="bold"
+        outlineWidth={0.025}
+        outlineColor="#000000"
+        fillOpacity={isNew ? 0.04 : isHighlighted ? 1.0 : isStreamingActive ? 0.08 : effectiveDimmed ? 0.2 : Math.max(0.6, neuron.strength)}
       >
         {neuron.label}
       </Text>
